@@ -125,29 +125,34 @@ pub const ICC: [f64; 8] = [1.0, 0.937, 0.84118, 0.60092, 0.36764, 0.0, -0.589, -
 
 /// Table 8.37: the prototype of the 8-band split of QMF band 0 (10 and 20
 /// stereo bands).
+#[rustfmt::skip]
 pub const G0_8: [f64; 13] = [
     0.00746082949812, 0.02270420949825, 0.04546865930473, 0.07266113929591, 0.09885108575264,
     0.11793710567217, 0.125, 0.11793710567217, 0.09885108575264, 0.07266113929591,
     0.04546865930473, 0.02270420949825, 0.00746082949812,
 ];
 /// Table 8.37: the prototype of the 2-band splits of QMF bands 1 and 2.
+#[rustfmt::skip]
 pub const G12_2: [f64; 13] = [
     0.0, 0.01899487526049, 0.0, -0.07293139167538, 0.0, 0.30596630545168, 0.5, 0.30596630545168,
     0.0, -0.07293139167538, 0.0, 0.01899487526049, 0.0,
 ];
 /// Table 8.38: the 12-band split of QMF band 0 (34 stereo bands).
+#[rustfmt::skip]
 pub const G0_12: [f64; 13] = [
     0.04081179924692, 0.03812810994926, 0.05144908135699, 0.06399831151592, 0.07428313801106,
     0.08100347892914, 0.08333333333333, 0.08100347892914, 0.07428313801106, 0.06399831151592,
     0.05144908135699, 0.03812810994926, 0.04081179924692,
 ];
 /// Table 8.38: the 8-band split of QMF band 1 (34 stereo bands).
+#[rustfmt::skip]
 pub const G1_8: [f64; 13] = [
     0.01565675600122, 0.03752716391991, 0.05417891378782, 0.08417044116767, 0.10307344158036,
     0.12222452249753, 0.12500000000000, 0.12222452249753, 0.10307344158036, 0.08417044116767,
     0.05417891378782, 0.03752716391991, 0.01565675600122,
 ];
 /// Table 8.38: the 4-band splits of QMF bands 2, 3 and 4 (34 stereo bands).
+#[rustfmt::skip]
 pub const G234_4: [f64; 13] = [
     -0.05908211155639, -0.04871498374946, 0.0, 0.07778723915851, 0.16486303567403,
     0.23279856662996, 0.25000000000000, 0.23279856662996, 0.16486303567403, 0.07778723915851,
@@ -157,6 +162,7 @@ pub const G234_4: [f64; 13] = [
 /// Table 8.48: the parameter band of each of the 71 hybrid bands (20 stereo
 /// bands), and whether its coefficients are conjugated (the starred rows).
 pub fn band_20(k: usize) -> (usize, bool) {
+    #[rustfmt::skip]
     const LOW: [(usize, bool); 16] = [
         (1, true), (0, true), (0, false), (1, false), (2, false), (3, false), (4, false), (5, false),
         (6, false), (7, false), (8, false), (9, false), (10, false), (11, false), (12, false), (13, false),
@@ -204,6 +210,7 @@ pub fn band_34(k: usize) -> (usize, bool) {
 
 /// Table 8.45: the 20-band index each of the 34 bands takes, as one index or
 /// the integer mean of two.
+#[rustfmt::skip]
 pub const MAP_20_TO_34: [(usize, usize); 34] = [
     (0, 0), (0, 1), (1, 1), (2, 2), (2, 3), (3, 3), (4, 4), (4, 4), (5, 5), (5, 5), (6, 6), (7, 7),
     (8, 8), (8, 8), (9, 9), (9, 9), (10, 10), (11, 11), (12, 12), (13, 13), (14, 14), (14, 14),
@@ -291,7 +298,13 @@ mod tests {
         // The hybrid synthesis adds the sub-bands back up, so the Q
         // modulated filters must sum to a pure delay of 6: the prototype's
         // centre tap is 1/Q and every tap a multiple of Q away from it is 0.
-        for (g, q) in [(&G0_8, 8), (&G0_12, 12), (&G1_8, 8), (&G234_4, 4), (&G12_2, 2)] {
+        for (g, q) in [
+            (&G0_8, 8),
+            (&G0_12, 12),
+            (&G1_8, 8),
+            (&G234_4, 4),
+            (&G12_2, 2),
+        ] {
             assert!((g[6] * q as f64 - 1.0).abs() < 1e-12);
             for n in (0..13).filter(|&n| n != 6 && (n as i32 - 6) % q == 0) {
                 assert_eq!(g[n], 0.0, "Q {q}, tap {n}");

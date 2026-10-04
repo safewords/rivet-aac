@@ -50,7 +50,11 @@ impl IcsInfo {
     }
 
     pub fn swb<'t>(&self, rt: &'t RateTables) -> &'t [u16] {
-        if self.short() { rt.swb_short } else { rt.swb_long }
+        if self.short() {
+            rt.swb_short
+        } else {
+            rt.swb_long
+        }
     }
 
     pub fn parse(r: &mut BitReader, rt: &RateTables) -> Result<Self> {
@@ -191,16 +195,27 @@ impl Ics {
 /// pulse tool's additions).
 fn pow43(q: i32) -> f32 {
     static TABLE: OnceLock<Vec<f32>> = OnceLock::new();
-    let t = TABLE.get_or_init(|| (0..8192 + 16).map(|i| f64::from(i).powf(4.0 / 3.0) as f32).collect());
+    let t = TABLE.get_or_init(|| {
+        (0..8192 + 16)
+            .map(|i| f64::from(i).powf(4.0 / 3.0) as f32)
+            .collect()
+    });
     let a = q.unsigned_abs() as usize;
-    let m = t.get(a).copied().unwrap_or_else(|| (a as f64).powf(4.0 / 3.0) as f32);
+    let m = t
+        .get(a)
+        .copied()
+        .unwrap_or_else(|| (a as f64).powf(4.0 / 3.0) as f32);
     if q < 0 { -m } else { m }
 }
 
 /// `2^(0.25 * (sf - 100))` (subclause 11.3.3, SF_OFFSET 100).
 fn sf_gain(sf: i32) -> f32 {
     static TABLE: OnceLock<Vec<f32>> = OnceLock::new();
-    let t = TABLE.get_or_init(|| (0..256).map(|s| 2f64.powf(0.25 * (f64::from(s) - 100.0)) as f32).collect());
+    let t = TABLE.get_or_init(|| {
+        (0..256)
+            .map(|s| 2f64.powf(0.25 * (f64::from(s) - 100.0)) as f32)
+            .collect()
+    });
     t[sf as usize]
 }
 

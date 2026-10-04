@@ -21,13 +21,21 @@ pub(crate) fn check_complete_prefix_code(name: &str, book: &[(u8, u32)]) {
     let mut kraft = 0f64;
     let mut codes: Vec<String> = Vec::new();
     for &(len, code) in book {
-        assert!(len > 0 && len <= 32 && u64::from(code) < 1u64 << len, "{name}");
+        assert!(
+            len > 0 && len <= 32 && u64::from(code) < 1u64 << len,
+            "{name}"
+        );
         kraft += 0.5f64.powi(i32::from(len));
         codes.push(format!("{code:0width$b}", width = usize::from(len)));
     }
     assert!((kraft - 1.0).abs() < 1e-12, "{name}: Kraft sum {kraft}");
     codes.sort();
     for pair in codes.windows(2) {
-        assert!(!pair[1].starts_with(&pair[0]), "{name}: {} prefixes {}", pair[0], pair[1]);
+        assert!(
+            !pair[1].starts_with(&pair[0]),
+            "{name}: {} prefixes {}",
+            pair[0],
+            pair[1]
+        );
     }
 }

@@ -68,7 +68,12 @@ fn faad_decode(path: &Path) -> (Vec<f32>, u32, usize) {
     );
     let data = std::fs::read(&wav).unwrap();
     let _ = std::fs::remove_file(&wav);
-    assert_eq!(&data[0..4], b"RIFF", "{}: faad wrote no WAV", path.display());
+    assert_eq!(
+        &data[0..4],
+        b"RIFF",
+        "{}: faad wrote no WAV",
+        path.display()
+    );
     let (mut rate, mut channels, mut i) = (0u32, 0usize, 12);
     while i + 8 <= data.len() {
         let id = &data[i..i + 4];
@@ -77,10 +82,20 @@ fn faad_decode(path: &Path) -> (Vec<f32>, u32, usize) {
             channels = usize::from(u16::from_le_bytes([data[i + 10], data[i + 11]]));
             rate = u32::from_le_bytes(data[i + 12..i + 16].try_into().unwrap());
             let bits = u16::from_le_bytes([data[i + 22], data[i + 23]]);
-            assert_eq!(bits, 32, "{}: faad wrote {bits}-bit samples", path.display());
+            assert_eq!(
+                bits,
+                32,
+                "{}: faad wrote {bits}-bit samples",
+                path.display()
+            );
         } else if id == b"data" {
             let end = (i + 8 + len).min(data.len());
-            let samples = data[i + 8..end].as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect();
+            let samples = data[i + 8..end]
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|b| f32::from_le_bytes(*b))
+                .collect();
             return (samples, rate, channels);
         }
         i += 8 + len + (len & 1);
@@ -90,7 +105,11 @@ fn faad_decode(path: &Path) -> (Vec<f32>, u32, usize) {
 
 /// The AudioSpecificConfig from an MP4's `esds` (14496-1 descriptors).
 fn esds_asc(file: &[u8]) -> Vec<u8> {
-    let at = file.windows(4).position(|w| w == b"esds").expect("an esds box") + 8;
+    let at = file
+        .windows(4)
+        .position(|w| w == b"esds")
+        .expect("an esds box")
+        + 8;
     let mut i = at;
     let descriptor = |i: &mut usize| -> (u8, usize) {
         let tag = file[*i];
@@ -135,7 +154,10 @@ fn boxes(data: &[u8]) -> Vec<([u8; 4], &[u8])> {
         let size = u32::from_be_bytes(data[i..i + 4].try_into().unwrap()) as usize;
         let kind: [u8; 4] = data[i + 4..i + 8].try_into().unwrap();
         let (header, size) = match size {
-            1 => (16, u64::from_be_bytes(data[i + 8..i + 16].try_into().unwrap()) as usize),
+            1 => (
+                16,
+                u64::from_be_bytes(data[i + 8..i + 16].try_into().unwrap()) as usize,
+            ),
             0 => (8, data.len() - i),
             n => (8, n),
         };
@@ -147,7 +169,11 @@ fn boxes(data: &[u8]) -> Vec<([u8; 4], &[u8])> {
 
 fn child<'a>(data: &'a [u8], path: &[&[u8; 4]]) -> &'a [u8] {
     path.iter().fold(data, |d, want| {
-        boxes(d).into_iter().find(|(k, _)| k == *want).unwrap_or_else(|| panic!("no {:?}", want)).1
+        boxes(d)
+            .into_iter()
+            .find(|(k, _)| k == *want)
+            .unwrap_or_else(|| panic!("no {:?}", want))
+            .1
     })
 }
 
@@ -157,10 +183,23 @@ fn mp4_packets(file: &[u8]) -> Vec<Vec<u8>> {
     let be = |b: &[u8], i: usize| u32::from_be_bytes(b[i..i + 4].try_into().unwrap()) as usize;
     let stsz = child(stbl, &[b"stsz"]);
     let (fixed, count) = (be(stsz, 4), be(stsz, 8));
-    let sizes: Vec<usize> = (0..count).map(|k| if fixed != 0 { fixed } else { be(stsz, 12 + 4 * k) }).collect();
+    let sizes: Vec<usize> = (0..count)
+        .map(|k| {
+            if fixed != 0 {
+                fixed
+            } else {
+                be(stsz, 12 + 4 * k)
+            }
+        })
+        .collect();
     let stsc = child(stbl, &[b"stsc"]);
-    let runs: Vec<(usize, usize)> = (0..be(stsc, 4)).map(|k| (be(stsc, 8 + 12 * k), be(stsc, 12 + 12 * k))).collect();
-    let offsets: Vec<usize> = match boxes(stbl).into_iter().find(|(k, _)| k == b"stco" || k == b"co64") {
+    let runs: Vec<(usize, usize)> = (0..be(stsc, 4))
+        .map(|k| (be(stsc, 8 + 12 * k), be(stsc, 12 + 12 * k)))
+        .collect();
+    let offsets: Vec<usize> = match boxes(stbl)
+        .into_iter()
+        .find(|(k, _)| k == b"stco" || k == b"co64")
+    {
         Some((k, b)) if &k == b"stco" => (0..be(b, 4)).map(|c| be(b, 8 + 4 * c)).collect(),
         Some((_, b)) => (0..be(b, 4))
             .map(|c| u64::from_be_bytes(b[8 + 8 * c..16 + 8 * c].try_into().unwrap()) as usize)
@@ -203,9 +242,15 @@ fn our_decode(path: &Path) -> Ours {
 /// `core_only`: decode an HE-AAC stream's AAC-LC core only.
 fn our_decode_with(path: &Path, core_only: bool) -> Ours {
     let file = std::fs::read(path).unwrap();
-    let is_mp4 = matches!(path.extension().and_then(|e| e.to_str()), Some("m4a" | "mp4"));
+    let is_mp4 = matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some("m4a" | "mp4")
+    );
     let (mut dec, units) = if is_mp4 {
-        (Decoder::new_raw(&esds_asc(&file)).unwrap(), mp4_packets(&file))
+        (
+            Decoder::new_raw(&esds_asc(&file)).unwrap(),
+            mp4_packets(&file),
+        )
     } else {
         (Decoder::new_adts(), vec![file])
     };
@@ -270,11 +315,17 @@ fn compare_channels(a: &[f32], b: &[f32], lag: isize) -> (f64, f32) {
 
 fn agreement(ours: &[f32], theirs: &[f32], channels: usize) -> Agreement {
     let a: Vec<Vec<f32>> = (0..channels).map(|c| channel(ours, channels, c)).collect();
-    let b: Vec<Vec<f32>> = (0..channels).map(|c| channel(theirs, channels, c)).collect();
+    let b: Vec<Vec<f32>> = (0..channels)
+        .map(|c| channel(theirs, channels, c))
+        .collect();
     // Alignment: whole frames of priming either side (a decoder's handling of
     // priming or an MP4's edit list shifts one against the other).
     // Our first channel against whichever of theirs it matches best.
-    let best = |lag: isize| b.iter().map(|bc| compare_channels(&a[0], bc, lag).0).fold(f64::NEG_INFINITY, f64::max);
+    let best = |lag: isize| {
+        b.iter()
+            .map(|bc| compare_channels(&a[0], bc, lag).0)
+            .fold(f64::NEG_INFINITY, f64::max)
+    };
     let lag = [-2048isize, -1024, 0, 1024, 2048]
         .into_iter()
         .max_by(|&x, &y| best(x).total_cmp(&best(y)))
@@ -343,12 +394,17 @@ fn tools_line(t: &ToolUse) -> String {
 fn adts_units(data: &[u8]) -> (u8, u8, u8, Vec<Vec<u8>>) {
     let (mut i, mut units, mut head) = (0, Vec::new(), None);
     while i + 7 <= data.len() {
-        assert!(data[i] == 0xff && data[i + 1] & 0xf0 == 0xf0, "ADTS sync at {i}");
+        assert!(
+            data[i] == 0xff && data[i + 1] & 0xf0 == 0xf0,
+            "ADTS sync at {i}"
+        );
         let crc = data[i + 1] & 1 == 0;
         let aot = (data[i + 2] >> 6) + 1;
         let sfi = (data[i + 2] >> 2) & 0xf;
         let cfg = ((data[i + 2] & 1) << 2) | (data[i + 3] >> 6);
-        let len = (usize::from(data[i + 3] & 3) << 11) | (usize::from(data[i + 4]) << 3) | usize::from(data[i + 5] >> 5);
+        let len = (usize::from(data[i + 3] & 3) << 11)
+            | (usize::from(data[i + 4]) << 3)
+            | usize::from(data[i + 5] >> 5);
         assert_eq!(data[i + 6] & 3, 0, "one raw data block per ADTS frame");
         let header = if crc { 9 } else { 7 };
         units.push(data[i + header..i + len].to_vec());
@@ -367,7 +423,8 @@ fn adts_units(data: &[u8]) -> (u8, u8, u8, Vec<Vec<u8>>) {
 fn asc_without_sbr(sfi: u8, cfg: u8) -> Vec<u8> {
     // 5 + 4 + 4 + 3 (GASpecificConfig: 1024-sample frames, no core coder,
     // no extension) + 11 + 5 + 1 bits.
-    let bits: u64 = (2u64 << 28) | (u64::from(sfi) << 24) | (u64::from(cfg) << 20) | (0x2b7 << 6) | (5 << 1);
+    let bits: u64 =
+        (2u64 << 28) | (u64::from(sfi) << 24) | (u64::from(cfg) << 20) | (0x2b7 << 6) | (5 << 1);
     let v = bits << 7; // 33 bits, left-aligned in 40
     v.to_be_bytes()[3..8].to_vec()
 }
@@ -391,7 +448,10 @@ fn mp4_file(asc: &[u8], rate: u32, channels: u16, units: &[Vec<u8>]) -> Vec<u8> 
     let duration = n * 1024;
     let descriptor = |tag: u8, body: &[u8]| [&[tag, body.len() as u8][..], body].concat();
     let dsi = descriptor(5, asc);
-    let dcd = descriptor(4, &[&[0x40, 0x15, 0, 0, 0][..], &be32(0), &be32(0), &dsi].concat());
+    let dcd = descriptor(
+        4,
+        &[&[0x40, 0x15, 0, 0, 0][..], &be32(0), &be32(0), &dsi].concat(),
+    );
     let es = descriptor(3, &[&[0, 1, 0][..], &dcd, &descriptor(6, &[2])].concat());
     let esds = full_box(b"esds", &es);
     let mp4a = mp4_box(
@@ -412,28 +472,80 @@ fn mp4_file(asc: &[u8], rate: u32, channels: u16, units: &[Vec<u8>]) -> Vec<u8> 
     let stsc = full_box(b"stsc", &[be32(1), be32(1), be32(n), be32(1)].concat());
     let stsz = full_box(
         b"stsz",
-        &[&be32(0)[..], &be32(n), &units.iter().flat_map(|u| be32(u.len() as u32)).collect::<Vec<_>>()].concat(),
+        &[
+            &be32(0)[..],
+            &be32(n),
+            &units
+                .iter()
+                .flat_map(|u| be32(u.len() as u32))
+                .collect::<Vec<_>>(),
+        ]
+        .concat(),
     );
     let ftyp = mp4_box(b"ftyp", b"M4A \0\0\0\0M4A mp42isom");
     let build = |chunk_offset: u32| {
         let stco = full_box(b"stco", &[be32(1), be32(chunk_offset)].concat());
         let stbl = mp4_box(b"stbl", &[&stsd[..], &stts, &stsc, &stsz, &stco].concat());
-        let dref = full_box(b"dref", &[&be32(1)[..], &full_box(b"url ", &[])[..]].concat());
+        let dref = full_box(
+            b"dref",
+            &[&be32(1)[..], &full_box(b"url ", &[])[..]].concat(),
+        );
         let dinf = mp4_box(b"dinf", &dref);
         let smhd = full_box(b"smhd", &[0u8; 4]);
         let minf = mp4_box(b"minf", &[&smhd[..], &dinf, &stbl].concat());
-        let hdlr = full_box(b"hdlr", &[&be32(0)[..], b"soun", &[0u8; 12], b"\0"].concat());
-        let mdhd = full_box(b"mdhd", &[&be32(0)[..], &be32(0), &be32(rate), &be32(duration), &[0x55, 0xc4, 0, 0]].concat());
+        let hdlr = full_box(
+            b"hdlr",
+            &[&be32(0)[..], b"soun", &[0u8; 12], b"\0"].concat(),
+        );
+        let mdhd = full_box(
+            b"mdhd",
+            &[
+                &be32(0)[..],
+                &be32(0),
+                &be32(rate),
+                &be32(duration),
+                &[0x55, 0xc4, 0, 0],
+            ]
+            .concat(),
+        );
         let mdia = mp4_box(b"mdia", &[&mdhd[..], &hdlr, &minf].concat());
-        let matrix: Vec<u8> = [0x10000u32, 0, 0, 0, 0x10000, 0, 0, 0, 0x4000_0000].iter().flat_map(|v| be32(*v)).collect();
+        let matrix: Vec<u8> = [0x10000u32, 0, 0, 0, 0x10000, 0, 0, 0, 0x4000_0000]
+            .iter()
+            .flat_map(|v| be32(*v))
+            .collect();
         let tkhd = mp4_box(
             b"tkhd",
-            &[&[0, 0, 0, 7][..], &be32(0), &be32(0), &be32(1), &be32(0), &be32(duration), &[0u8; 8], &[0, 0, 0, 0, 1, 0, 0, 0], &matrix, &be32(0), &be32(0)].concat(),
+            &[
+                &[0, 0, 0, 7][..],
+                &be32(0),
+                &be32(0),
+                &be32(1),
+                &be32(0),
+                &be32(duration),
+                &[0u8; 8],
+                &[0, 0, 0, 0, 1, 0, 0, 0],
+                &matrix,
+                &be32(0),
+                &be32(0),
+            ]
+            .concat(),
         );
         let trak = mp4_box(b"trak", &[&tkhd[..], &mdia].concat());
         let mvhd = full_box(
             b"mvhd",
-            &[&be32(0)[..], &be32(0), &be32(rate), &be32(duration), &be32(0x10000), &[1, 0], &[0u8; 10], &matrix, &[0u8; 24], &be32(2)].concat(),
+            &[
+                &be32(0)[..],
+                &be32(0),
+                &be32(rate),
+                &be32(duration),
+                &be32(0x10000),
+                &[1, 0],
+                &[0u8; 10],
+                &matrix,
+                &[0u8; 24],
+                &be32(2),
+            ]
+            .concat(),
         );
         mp4_box(b"moov", &[&mvhd[..], &trak].concat())
     };
@@ -444,7 +556,10 @@ fn mp4_file(asc: &[u8], rate: u32, channels: u16, units: &[Vec<u8>]) -> Vec<u8> 
 }
 
 /// The rates (Hz) of the sampling frequency indices.
-const RATES: [u32; 13] = [96_000, 88_200, 64_000, 48_000, 44_100, 32_000, 24_000, 22_050, 16_000, 12_000, 11_025, 8_000, 7_350];
+const RATES: [u32; 13] = [
+    96_000, 88_200, 64_000, 48_000, 44_100, 32_000, 24_000, 22_050, 16_000, 12_000, 11_025, 8_000,
+    7_350,
+];
 
 /// What faad reads: an AAC-LC ADTS stream that faad would take for
 /// possible SBR (any rate up to 24 kHz) or PS (mono) is repackaged, its
@@ -463,7 +578,11 @@ fn faad_input(path: &Path) -> PathBuf {
         return path.to_path_buf();
     }
     let out = path.with_extension("explicit.m4a");
-    std::fs::write(&out, mp4_file(&asc_without_sbr(sfi, cfg), rate, cfg.max(1).into(), &units)).unwrap();
+    std::fs::write(
+        &out,
+        mp4_file(&asc_without_sbr(sfi, cfg), rate, cfg.max(1).into(), &units),
+    )
+    .unwrap();
     out
 }
 
@@ -478,7 +597,14 @@ fn expected_speakers(channels: usize, pce: bool) -> Option<&'static [Speaker]> {
     match channels {
         1 => Some(&[Speaker::FC]),
         2 => Some(&[Speaker::FL, Speaker::FR]),
-        6 => Some(&[Speaker::FL, Speaker::FR, Speaker::FC, Speaker::LFE, Speaker::BL, Speaker::BR]),
+        6 => Some(&[
+            Speaker::FL,
+            Speaker::FR,
+            Speaker::FC,
+            Speaker::LFE,
+            Speaker::BL,
+            Speaker::BR,
+        ]),
         8 => Some(&[
             Speaker::FL,
             Speaker::FR,
@@ -516,7 +642,12 @@ fn check_with(path: &Path, report: &mut Vec<String>, min_snr: f64) -> Ours {
     let name = path.file_name().unwrap().to_string_lossy();
     if ours.channels == 1 && channels == 2 {
         // faad outputs mono as two identical channels.
-        let (l, r): (Vec<f32>, Vec<f32>) = theirs.as_chunks::<2>().0.iter().map(|p| (p[0], p[1])).unzip();
+        let (l, r): (Vec<f32>, Vec<f32>) = theirs
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|p| (p[0], p[1]))
+            .unzip();
         assert_eq!(l, r, "{name}: faad's two channels of a mono stream differ");
         (theirs, channels) = (l, 1);
     }
@@ -525,7 +656,12 @@ fn check_with(path: &Path, report: &mut Vec<String>, min_snr: f64) -> Ours {
     let a = agreement(&ours.samples, &theirs, channels);
     let mut sorted = a.mapping.clone();
     sorted.sort();
-    assert_eq!(sorted, (0..channels).collect::<Vec<_>>(), "{name}: channel mapping {:?}", a.mapping);
+    assert_eq!(
+        sorted,
+        (0..channels).collect::<Vec<_>>(),
+        "{name}: channel mapping {:?}",
+        a.mapping
+    );
     if ours.ps {
         // Parametric stereo's reconstruction differs between the two
         // decoders by more than rounding: faad2's is not the one ISO/IEC
@@ -536,15 +672,21 @@ fn check_with(path: &Path, report: &mut Vec<String>, min_snr: f64) -> Ours {
         let gap = envelope_gap_db(&ours.samples, &theirs, channels, a.lag);
         let level = |x: &[f32], c: usize| {
             let v = channel(x, channels, c);
-            10.0 * (v.iter().map(|&s| f64::from(s).powi(2)).sum::<f64>() / v.len().max(1) as f64).log10()
+            10.0 * (v.iter().map(|&s| f64::from(s).powi(2)).sum::<f64>() / v.len().max(1) as f64)
+                .log10()
         };
-        let levels: Vec<f64> = (0..channels).map(|c| level(&ours.samples, c) - level(&theirs, c)).collect();
+        let levels: Vec<f64> = (0..channels)
+            .map(|c| level(&ours.samples, c) - level(&theirs, c))
+            .collect();
         report.push(format!(
             "{name:<38} {rate:>6} Hz x{channels} PS: SNR {:.1} dB, block energy within {gap:.2} dB, channel levels {levels:+.2?} dB [{}]",
             a.snr,
             tools_line(&ours.tools)
         ));
-        assert!(levels.iter().all(|l| l.abs() < 2.0), "{name}: PS channel levels differ by {levels:.2?} dB");
+        assert!(
+            levels.iter().all(|l| l.abs() < 2.0),
+            "{name}: PS channel levels differ by {levels:.2?} dB"
+        );
         assert!(gap < 5.0, "{name}: PS block energy differs by {gap:.2} dB");
     } else if ours.tools.noise_bands > 0 {
         let gap = envelope_gap_db(&ours.samples, &theirs, channels, a.lag);
@@ -587,7 +729,10 @@ fn check_all(paths: &[(PathBuf, f64)]) {
             lines
         })) {
             Ok(lines) => report.extend(lines),
-            Err(e) => failures.push(format!("{name}: {}", e.downcast_ref::<String>().cloned().unwrap_or_default())),
+            Err(e) => failures.push(format!(
+                "{name}: {}",
+                e.downcast_ref::<String>().cloned().unwrap_or_default()
+            )),
         }
     }
     for l in &report {
@@ -618,7 +763,14 @@ fn agrees_with_faad_on_committed_streams() {
         }
         let copy = dir.join(&name);
         std::fs::copy(&path, &copy).unwrap();
-        cases.push((copy, if name.starts_with("he") { HE_SNR_DB } else { LC_SNR_DB }));
+        cases.push((
+            copy,
+            if name.starts_with("he") {
+                HE_SNR_DB
+            } else {
+                LC_SNR_DB
+            },
+        ));
     }
     let r = std::panic::catch_unwind(|| check_all(&cases));
     let _ = std::fs::remove_dir_all(&dir);
@@ -644,14 +796,23 @@ fn he_aac_decodes_as_its_core() {
         let core = our_decode_with(&path, true);
         let full = our_decode_with(&path, false);
         assert!(core.he_aac, "{name}: not reported as HE-AAC");
-        assert_eq!(core.rate * 2, full.rate, "{name}: the core runs at half the output rate");
-        let rms = |x: &[f32]| (x.iter().map(|&v| f64::from(v).powi(2)).sum::<f64>() / x.len() as f64).sqrt();
+        assert_eq!(
+            core.rate * 2,
+            full.rate,
+            "{name}: the core runs at half the output rate"
+        );
+        let rms = |x: &[f32]| {
+            (x.iter().map(|&v| f64::from(v).powi(2)).sum::<f64>() / x.len() as f64).sqrt()
+        };
         let level = 20.0 * (rms(&core.samples) / rms(&full.samples)).log10();
         eprintln!(
             "{name:<38} core {} Hz x{}, full {} Hz x{}; level {level:+.1} dB",
             core.rate, core.channels, full.rate, full.channels
         );
-        assert!(level.abs() < 3.0, "{name}: core level {level:.1} dB off the full decode");
+        assert!(
+            level.abs() < 3.0,
+            "{name}: core level {level:.1} dB off the full decode"
+        );
     }
 }
 
@@ -701,7 +862,11 @@ fn agrees_with_faad_on_this_crates_encoder() {
         for channels in [1u8, 2, 3, 4, 5, 6, 8] {
             cases.push((
                 format!("lc-{rate}-{channels}ch"),
-                EncoderConfig { sample_rate: rate, channels, bitrate: 0 },
+                EncoderConfig {
+                    sample_rate: rate,
+                    channels,
+                    bitrate: 0,
+                },
                 Profile::Lc,
             ));
         }
@@ -709,15 +874,30 @@ fn agrees_with_faad_on_this_crates_encoder() {
     for bitrate in [32_000u32, 64_000, 96_000, 160_000, 256_000, 320_000] {
         cases.push((
             format!("lc-44100-2ch-{bitrate}"),
-            EncoderConfig { sample_rate: 44_100, channels: 2, bitrate },
+            EncoderConfig {
+                sample_rate: 44_100,
+                channels: 2,
+                bitrate,
+            },
             Profile::Lc,
         ));
     }
     // The speech-band rates at lean bit rates.
-    for (rate, channels, bitrate) in [(8_000u32, 1u8, 12_000u32), (8_000, 2, 24_000), (11_025, 1, 16_000), (12_000, 2, 32_000), (16_000, 1, 16_000), (16_000, 2, 48_000)] {
+    for (rate, channels, bitrate) in [
+        (8_000u32, 1u8, 12_000u32),
+        (8_000, 2, 24_000),
+        (11_025, 1, 16_000),
+        (12_000, 2, 32_000),
+        (16_000, 1, 16_000),
+        (16_000, 2, 48_000),
+    ] {
         cases.push((
             format!("lc-{rate}-{channels}ch-{bitrate}"),
-            EncoderConfig { sample_rate: rate, channels, bitrate },
+            EncoderConfig {
+                sample_rate: rate,
+                channels,
+                bitrate,
+            },
             Profile::Lc,
         ));
     }
@@ -725,13 +905,21 @@ fn agrees_with_faad_on_this_crates_encoder() {
         for channels in [1u8, 2, 6] {
             cases.push((
                 format!("he-{rate}-{channels}ch"),
-                EncoderConfig { sample_rate: rate, channels, bitrate: 0 },
+                EncoderConfig {
+                    sample_rate: rate,
+                    channels,
+                    bitrate: 0,
+                },
                 Profile::HeAac,
             ));
         }
         cases.push((
             format!("he-v2-{rate}-2ch"),
-            EncoderConfig { sample_rate: rate, channels: 2, bitrate: 0 },
+            EncoderConfig {
+                sample_rate: rate,
+                channels: 2,
+                bitrate: 0,
+            },
             Profile::HeAacV2,
         ));
     }
@@ -740,7 +928,14 @@ fn agrees_with_faad_on_this_crates_encoder() {
         let samples = signal(config.sample_rate, usize::from(config.channels), 2.0);
         let enc = Encoder::with_profile(config, profile).unwrap();
         let path = encode_to_adts(&dir, &name, enc, &samples);
-        paths.push((path, if profile == Profile::Lc { LC_SNR_DB } else { HE_SNR_DB }));
+        paths.push((
+            path,
+            if profile == Profile::Lc {
+                LC_SNR_DB
+            } else {
+                HE_SNR_DB
+            },
+        ));
     }
     let r = std::panic::catch_unwind(|| check_all(&paths));
     let _ = std::fs::remove_dir_all(&dir);
@@ -761,11 +956,25 @@ fn agrees_with_faad_on_kbd_windows_and_pulses() {
     let mut report = Vec::new();
     for (rate, channels) in [(48_000u32, 2u8), (44_100, 1), (32_000, 6)] {
         for ex in [
-            Exercise { kbd_windows: true, pulses: false },
-            Exercise { kbd_windows: false, pulses: true },
-            Exercise { kbd_windows: true, pulses: true },
+            Exercise {
+                kbd_windows: true,
+                pulses: false,
+            },
+            Exercise {
+                kbd_windows: false,
+                pulses: true,
+            },
+            Exercise {
+                kbd_windows: true,
+                pulses: true,
+            },
         ] {
-            let mut enc = Encoder::new(EncoderConfig { sample_rate: rate, channels, bitrate: 0 }).unwrap();
+            let mut enc = Encoder::new(EncoderConfig {
+                sample_rate: rate,
+                channels,
+                bitrate: 0,
+            })
+            .unwrap();
             enc.exercise(ex);
             let samples = signal(rate, usize::from(channels), 2.0);
             let name = format!(

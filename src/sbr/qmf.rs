@@ -55,14 +55,20 @@ impl Matrix {
 fn analysis32_matrix() -> &'static Matrix {
     static M: OnceLock<Matrix> = OnceLock::new();
     // M(k, n) = 2 exp(i pi (k + 0.5)(2n - 0.5) / 64).
-    M.get_or_init(|| Matrix::new(32, 64, 2.0, |k, n| PI / 64.0 * (k as f64 + 0.5) * (2.0 * n as f64 - 0.5)))
+    M.get_or_init(|| {
+        Matrix::new(32, 64, 2.0, |k, n| {
+            PI / 64.0 * (k as f64 + 0.5) * (2.0 * n as f64 - 0.5)
+        })
+    })
 }
 
 fn synthesis64_matrix() -> &'static Matrix {
     static M: OnceLock<Matrix> = OnceLock::new();
     // N(k, n) = exp(i pi (k + 0.5)(2n - 255) / 128) / 64, stored by n.
     M.get_or_init(|| {
-        Matrix::new(128, 64, 1.0 / 64.0, |n, k| PI / 128.0 * (k as f64 + 0.5) * (2.0 * n as f64 - 255.0))
+        Matrix::new(128, 64, 1.0 / 64.0, |n, k| {
+            PI / 128.0 * (k as f64 + 0.5) * (2.0 * n as f64 - 255.0)
+        })
     })
 }
 
@@ -70,14 +76,20 @@ fn synthesis32_matrix() -> &'static Matrix {
     static M: OnceLock<Matrix> = OnceLock::new();
     // N(k, n) = exp(i pi (k + 0.5)(2n - 127.5) / 64) / 64, stored by n.
     M.get_or_init(|| {
-        Matrix::new(64, 32, 1.0 / 64.0, |n, k| PI / 64.0 * (k as f64 + 0.5) * (2.0 * n as f64 - 127.5))
+        Matrix::new(64, 32, 1.0 / 64.0, |n, k| {
+            PI / 64.0 * (k as f64 + 0.5) * (2.0 * n as f64 - 127.5)
+        })
     })
 }
 
 fn analysis64_matrix() -> &'static Matrix {
     static M: OnceLock<Matrix> = OnceLock::new();
     // M(k, n) = exp(i pi (k + 0.5)(2n + 1) / 128).
-    M.get_or_init(|| Matrix::new(64, 128, 1.0, |k, n| PI / 128.0 * (k as f64 + 0.5) * (2.0 * n as f64 + 1.0)))
+    M.get_or_init(|| {
+        Matrix::new(64, 128, 1.0, |k, n| {
+            PI / 128.0 * (k as f64 + 0.5) * (2.0 * n as f64 + 1.0)
+        })
+    })
 }
 
 /// The decoder's 32-band analysis bank (Figure 4.42).
@@ -399,8 +411,18 @@ mod tests {
     #[test]
     fn banks_match_their_literal_form_bit_for_bit() {
         let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
-        let cbits = |v: &[Cplx]| v.iter().flat_map(|c| [c.re.to_bits(), c.im.to_bits()]).collect::<Vec<_>>();
-        for (seed, scale) in [(1u32, 1.0f32), (2, 32768.0), (3, 1e-30), (4, 0.0), (5, 3e30)] {
+        let cbits = |v: &[Cplx]| {
+            v.iter()
+                .flat_map(|c| [c.re.to_bits(), c.im.to_bits()])
+                .collect::<Vec<_>>()
+        };
+        for (seed, scale) in [
+            (1u32, 1.0f32),
+            (2, 32768.0),
+            (3, 1e-30),
+            (4, 0.0),
+            (5, 3e30),
+        ] {
             let x: [f32; 320] = noise(320, seed, scale).try_into().unwrap();
             let (mut a, mut b) = ([Cplx::ZERO; 32], [Cplx::ZERO; 32]);
             analysis32(&x, &mut a);
@@ -413,7 +435,10 @@ mod tests {
             literal::analysis64(&x64, &mut b);
             assert_eq!(cbits(&a), cbits(&b), "analysis64 seed {seed}");
 
-            let sub: Vec<Cplx> = noise(128, seed + 20, scale).chunks(2).map(|c| Cplx::new(c[0], c[1])).collect();
+            let sub: Vec<Cplx> = noise(128, seed + 20, scale)
+                .chunks(2)
+                .map(|c| Cplx::new(c[0], c[1]))
+                .collect();
             let mut v1 = noise(1280, seed + 30, scale);
             let mut v2 = v1.clone();
             let (mut o1, mut o2) = ([0.0f32; 64], [0.0f32; 64]);
@@ -434,7 +459,11 @@ mod tests {
 
     fn snr(reference: &[f64], got: &[f64]) -> f64 {
         let s: f64 = reference.iter().map(|v| v * v).sum();
-        let e: f64 = reference.iter().zip(got).map(|(a, b)| (a - b) * (a - b)).sum();
+        let e: f64 = reference
+            .iter()
+            .zip(got)
+            .map(|(a, b)| (a - b) * (a - b))
+            .sum();
         10.0 * (s / e.max(1e-300)).log10()
     }
 
@@ -464,7 +493,8 @@ mod tests {
         (0..n)
             .map(|i| {
                 let t = i as f64 / rate;
-                (0.5 * (2.0 * PI * 997.0 * t).sin() + 0.3 * (2.0 * PI * 5003.0 * t + 1.0).sin()
+                (0.5 * (2.0 * PI * 997.0 * t).sin()
+                    + 0.3 * (2.0 * PI * 5003.0 * t + 1.0).sin()
                     + 0.1 * (((i * 7919) % 101) as f64 / 50.0 - 1.0)) as f32
             })
             .collect()
@@ -485,7 +515,10 @@ mod tests {
             }
             let want = reference_analysis32(&x);
             let a: Vec<f64> = want.iter().flat_map(|&(r, i)| [r, i]).collect();
-            let b: Vec<f64> = out.iter().flat_map(|c| [f64::from(c.re), f64::from(c.im)]).collect();
+            let b: Vec<f64> = out
+                .iter()
+                .flat_map(|c| [f64::from(c.re), f64::from(c.im)])
+                .collect();
             if a.iter().any(|v| v.abs() > 1e-3) {
                 worst = worst.min(snr(&a, &b));
             }
@@ -505,9 +538,17 @@ mod tests {
     /// Run `tones` at `rate_in` through `chain` (one slot of `n_in` samples
     /// in, `n_out` out) and find the delay at which the output best matches
     /// the same tones at the output rate: `(delay, gain, snr)`.
-    fn measure(rate_in: f64, n_in: usize, n_out: usize, mut chain: impl FnMut(&[f32], &mut [f32])) -> (usize, f64, f64) {
+    fn measure(
+        rate_in: f64,
+        n_in: usize,
+        n_out: usize,
+        mut chain: impl FnMut(&[f32], &mut [f32]),
+    ) -> (usize, f64, f64) {
         let slots = 300;
-        let input: Vec<f32> = tones(n_in * slots, rate_in, 0.0).iter().map(|&v| v as f32).collect();
+        let input: Vec<f32> = tones(n_in * slots, rate_in, 0.0)
+            .iter()
+            .map(|&v| v as f32)
+            .collect();
         let mut out = vec![0.0f32; n_out * slots];
         for (i, o) in input.chunks(n_in).zip(out.chunks_mut(n_out)) {
             chain(i, o);
@@ -537,10 +578,42 @@ mod tests {
         let (mut a32, mut a64) = (Analysis32::default(), Analysis64::default());
         let (mut s32, mut s64) = (Synthesis32::default(), Synthesis64::default());
         let pairs = [
-            ("a32 s32", measure(16_000.0, 32, 32, |i, o| { a32.process(i, &mut sub[..32]); s32.process(&sub, o); }), 289, 70.0),
-            ("a32 s64", measure(16_000.0, 32, 64, |i, o| { a32.process(i, &mut sub[..32]); s64.process(&sub, o); }), 578, 70.0),
-            ("a64 s64", measure(32_000.0, 64, 64, |i, o| { a64.process(i, &mut sub); s64.process(&sub, o); }), 576, 58.0),
-            ("a64 s32", measure(32_000.0, 64, 32, |i, o| { a64.process(i, &mut sub); s32.process(&sub, o); }), 288, 58.0),
+            (
+                "a32 s32",
+                measure(16_000.0, 32, 32, |i, o| {
+                    a32.process(i, &mut sub[..32]);
+                    s32.process(&sub, o);
+                }),
+                289,
+                70.0,
+            ),
+            (
+                "a32 s64",
+                measure(16_000.0, 32, 64, |i, o| {
+                    a32.process(i, &mut sub[..32]);
+                    s64.process(&sub, o);
+                }),
+                578,
+                70.0,
+            ),
+            (
+                "a64 s64",
+                measure(32_000.0, 64, 64, |i, o| {
+                    a64.process(i, &mut sub);
+                    s64.process(&sub, o);
+                }),
+                576,
+                58.0,
+            ),
+            (
+                "a64 s32",
+                measure(32_000.0, 64, 32, |i, o| {
+                    a64.process(i, &mut sub);
+                    s32.process(&sub, o);
+                }),
+                288,
+                58.0,
+            ),
         ];
         for (name, (delay, gain, snr), want_delay, want_snr) in pairs {
             assert_eq!(delay, want_delay, "{name}");
@@ -549,4 +622,3 @@ mod tests {
         }
     }
 }
-

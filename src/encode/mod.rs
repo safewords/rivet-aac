@@ -57,8 +57,8 @@ use crate::tables::{self, RateTables, windows};
 
 use bits::BitWriter;
 use psy::{AttackDetector, BandPsy, Zone};
-use sbr::HeFrontEnd;
 use quant::{ChannelFrame, Layout, Quantized};
+use sbr::HeFrontEnd;
 
 pub use crate::FRAME_SAMPLES;
 /// Priming samples at the start of the stream (one frame of MDCT overlap).
@@ -373,26 +373,59 @@ impl Encoder {
                 config.channels
             )));
         }
-        let bitrate = if config.bitrate == 0 { default_he_aac_bitrate(profile, config.channels) } else { config.bitrate };
+        let bitrate = if config.bitrate == 0 {
+            default_he_aac_bitrate(profile, config.channels)
+        } else {
+            config.bitrate
+        };
         let core_channels = if v2 { 1 } else { config.channels };
         let main = u32::from(core_channels) - u32::from(core_channels >= 6);
-        let (lo, hi) = if v2 { (16_000, 64_000) } else { (12_000 * main, 64_000 * main) };
+        let (lo, hi) = if v2 {
+            (16_000, 64_000)
+        } else {
+            (12_000 * main, 64_000 * main)
+        };
         if bitrate < lo || bitrate > hi {
             return Err(Error::Config(format!(
                 "{profile:?} bit rate {bitrate} b/s for {} channels (allowed {lo}..={hi})",
                 config.channels
             )));
         }
-        let core_config = EncoderConfig { sample_rate: rate / 2, channels: core_channels, bitrate };
-        let elements = channel_elements(core_channels).expect("a channel configuration").1;
+        let core_config = EncoderConfig {
+            sample_rate: rate / 2,
+            channels: core_channels,
+            bitrate,
+        };
+        let elements = channel_elements(core_channels)
+            .expect("a channel configuration")
+            .1;
         let sbr_elements: Vec<Vec<usize>> = elements
             .iter()
             .filter(|(kind, _)| *kind != ElementKind::Lfe)
-            .map(|(kind, ch)| if *kind == ElementKind::Cpe { ch.to_vec() } else { vec![ch[0]] })
+            .map(|(kind, ch)| {
+                if *kind == ElementKind::Cpe {
+                    ch.to_vec()
+                } else {
+                    vec![ch[0]]
+                }
+            })
             .collect();
-        let front = HeFrontEnd::new(rate, usize::from(config.channels), usize::from(core_channels), v2, &sbr_elements, bitrate / main);
+        let front = HeFrontEnd::new(
+            rate,
+            usize::from(config.channels),
+            usize::from(core_channels),
+            v2,
+            &sbr_elements,
+            bitrate / main,
+        );
         let mut enc = Self::core(core_config, Some(32 * front.kx()))?;
-        enc.he = Some(Box::new(HeAac { profile, rate, channels: config.channels, front, samples_in: 0 }));
+        enc.he = Some(Box::new(HeAac {
+            profile,
+            rate,
+            channels: config.channels,
+            front,
+            samples_in: 0,
+        }));
         Ok(enc)
     }
 
@@ -515,7 +548,9 @@ impl Encoder {
     /// The AudioSpecificConfig with SBR and PS signalled as `signalling`
     /// asks; for AAC-LC always the plain configuration.
     pub fn audio_specific_config_with(&self, signalling: Signalling) -> Vec<u8> {
-        let Some(he) = &self.he else { return self.asc.to_vec() };
+        let Some(he) = &self.he else {
+            return self.asc.to_vec();
+        };
         syntax::he_aac_audio_specific_config(
             self.tables.index,
             self.channel_configuration,
@@ -544,13 +579,21 @@ impl Encoder {
     /// Output samples per channel each access unit decodes to: 1024 for
     /// AAC-LC, 2048 for HE-AAC.
     pub fn frame_samples(&self) -> usize {
-        if self.he.is_some() { 2 * FRAME_SAMPLES } else { FRAME_SAMPLES }
+        if self.he.is_some() {
+            2 * FRAME_SAMPLES
+        } else {
+            FRAME_SAMPLES
+        }
     }
 
     /// Priming samples at the start of the decoded output, at the output
     /// rate: [`ENCODER_DELAY`] for AAC-LC, [`HE_AAC_DELAY`] for HE-AAC.
     pub fn delay(&self) -> u32 {
-        if self.he.is_some() { HE_AAC_DELAY } else { ENCODER_DELAY }
+        if self.he.is_some() {
+            HE_AAC_DELAY
+        } else {
+            ENCODER_DELAY
+        }
     }
 
     /// sampling_frequency_index, for an ADTS header.
@@ -641,7 +684,11 @@ impl Encoder {
     fn finish_he(&mut self, samples: u64) -> Vec<Vec<u8>> {
         let he = self.he.as_mut().expect("an HE-AAC encoder");
         let frame = 2 * FRAME_SAMPLES as u64;
-        let needed = if samples == 0 { 0 } else { (samples + u64::from(HE_AAC_DELAY)).div_ceil(frame) };
+        let needed = if samples == 0 {
+            0
+        } else {
+            (samples + u64::from(HE_AAC_DELAY)).div_ceil(frame)
+        };
         let mut out = Vec::new();
         // The front end must have analysed every slot the last frame's SBR
         // data looks at, and the core every sample of its frames.
@@ -667,7 +714,13 @@ impl Encoder {
     fn push(&mut self, samples: &[f32]) {
         let n = usize::from(self.channels);
         for (c, ch) in self.chans.iter_mut().enumerate() {
-            ch.pcm.extend(samples.iter().skip(c).step_by(n).map(|&s| sanitize(s) * 32768.0));
+            ch.pcm.extend(
+                samples
+                    .iter()
+                    .skip(c)
+                    .step_by(n)
+                    .map(|&s| sanitize(s) * 32768.0),
+            );
         }
     }
 
@@ -697,7 +750,10 @@ impl Encoder {
         // The SBR data of this frame, one fill element per SCE / CPE.
         let sbr: Vec<sbr::Bits> = match self.he.as_mut() {
             Some(he) => {
-                debug_assert!(he.front.ready(self.frames_out), "SBR data asked for too early");
+                debug_assert!(
+                    he.front.ready(self.frames_out),
+                    "SBR data asked for too early"
+                );
                 he.front.frame(self.frames_out)
             }
             None => Vec::new(),
@@ -833,7 +889,10 @@ impl Encoder {
                     w.put(u32::from(el.tag), 4);
                     // An LFE always signals the sine window (13818-7 8.4).
                     let ex = if el.kind == ElementKind::Lfe {
-                        Exercise { kbd_windows: false, ..self.exercise }
+                        Exercise {
+                            kbd_windows: false,
+                            ..self.exercise
+                        }
                     } else {
                         self.exercise
                     };
@@ -1096,7 +1155,11 @@ impl Encoder {
 /// Zero a NaN and clamp a wild value (8x full scale still codes: the
 /// scalefactor range covers it).
 fn sanitize(s: f32) -> f32 {
-    if s.is_finite() { s.clamp(-8.0, 8.0) } else { 0.0 }
+    if s.is_finite() {
+        s.clamp(-8.0, 8.0)
+    } else {
+        0.0
+    }
 }
 
 fn two_mut<T>(v: &mut [T], a: usize, b: usize) -> (&mut T, &mut T) {

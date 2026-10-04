@@ -83,7 +83,12 @@ fn scale_to(band: &mut [f32], energy: f64, nrg: i32) {
 /// PNS for one channel, or a pair: every noise band gets its own noise,
 /// except that a band both channels of a pair fill with noise and flag in
 /// ms_used gets the same noise in both, each at its own energy.
-pub(crate) fn noise(rt: &RateTables, rng: &mut Noise, l: &mut Ics, pair: Option<(&mut Ics, &MsMask)>) {
+pub(crate) fn noise(
+    rt: &RateTables,
+    rng: &mut Noise,
+    l: &mut Ics,
+    pair: Option<(&mut Ics, &MsMask)>,
+) {
     let swb = l.info.swb(rt);
     let groups = l.info.group_len.len();
     let max_sfb = l.info.max_sfb;
@@ -103,8 +108,8 @@ pub(crate) fn noise(rt: &RateTables, rng: &mut Noise, l: &mut Ics, pair: Option<
                     if r.sfb_cb[g][sfb] != NOISE_HCB {
                         continue;
                     }
-                    let correlated = left_noise
-                        && ms.is_some_and(|m| m.present != 0 && m.used[g][sfb]);
+                    let correlated =
+                        left_noise && ms.is_some_and(|m| m.present != 0 && m.used[g][sfb]);
                     if correlated {
                         let copy: Vec<f32> = l.spec[band.clone()].to_vec();
                         let energy: f64 = copy.iter().map(|&v| f64::from(v) * f64::from(v)).sum();
@@ -162,7 +167,11 @@ pub(crate) fn tns(rt: &RateTables, ics: &mut Ics) {
     let short = ics.info.short();
     let swb = ics.info.swb(rt);
     let num_swb = rt.num_swb(short);
-    let max_bands = usize::from(if short { rt.tns_max_bands.1 } else { rt.tns_max_bands.0 });
+    let max_bands = usize::from(if short {
+        rt.tns_max_bands.1
+    } else {
+        rt.tns_max_bands.0
+    });
     let max_order = if short { 7 } else { 12 };
     let limit = max_bands.min(ics.info.max_sfb);
     let mut lpc = [0.0f32; 13];

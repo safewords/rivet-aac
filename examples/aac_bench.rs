@@ -31,15 +31,26 @@ fn main() {
     let raw = std::fs::read(args.get(1).expect("pcm file")).unwrap();
     let passes: usize = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(5);
     let only = args.get(3).cloned().unwrap_or_default();
-    let pcm: Vec<f32> = raw.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect();
+    let pcm: Vec<f32> = raw
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| f32::from_le_bytes(*c))
+        .collect();
     let secs = pcm.len() as f64 / 2.0 / 48_000.0;
-    for (name, profile, bitrate) in
-        [("lc 128k", Profile::Lc, 128_000), ("he 64k", Profile::HeAac, 64_000), ("hev2 32k", Profile::HeAacV2, 32_000)]
-    {
+    for (name, profile, bitrate) in [
+        ("lc 128k", Profile::Lc, 128_000),
+        ("he 64k", Profile::HeAac, 64_000),
+        ("hev2 32k", Profile::HeAacV2, 32_000),
+    ] {
         if !name.contains(only.as_str()) {
             continue;
         }
-        let cfg = EncoderConfig { sample_rate: 48_000, channels: 2, bitrate };
+        let cfg = EncoderConfig {
+            sample_rate: 48_000,
+            channels: 2,
+            bitrate,
+        };
         let mut aus = Vec::new();
         let mut asc = Vec::new();
         let t = best(passes, || {
@@ -70,7 +81,13 @@ fn main() {
             }
         });
         let mut out_h = 0xcbf2_9ce4_8422_2325;
-        fnv(&mut out_h, out.iter().flat_map(|v| v.to_bits().to_le_bytes()));
-        println!("decode  {name:<9} {:7.1} x realtime (output hash {out_h:016x})", secs / t);
+        fnv(
+            &mut out_h,
+            out.iter().flat_map(|v| v.to_bits().to_le_bytes()),
+        );
+        println!(
+            "decode  {name:<9} {:7.1} x realtime (output hash {out_h:016x})",
+            secs / t
+        );
     }
 }

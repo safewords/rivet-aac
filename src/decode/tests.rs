@@ -7,7 +7,9 @@ use crate::encode::{self, Encoder, EncoderConfig};
 
 fn sine(freq: f64, amp: f64, rate: u32, len: usize) -> Vec<f32> {
     (0..len)
-        .map(|i| (amp * (2.0 * std::f64::consts::PI * freq * i as f64 / f64::from(rate)).sin()) as f32)
+        .map(|i| {
+            (amp * (2.0 * std::f64::consts::PI * freq * i as f64 / f64::from(rate)).sin()) as f32
+        })
         .collect()
 }
 
@@ -47,8 +49,27 @@ fn round_trips_every_layout_through_the_encoder() {
         (2, vec![Speaker::FL, Speaker::FR]),
         (3, vec![Speaker::FL, Speaker::FR, Speaker::FC]),
         (4, vec![Speaker::FL, Speaker::FR, Speaker::FC, Speaker::BC]),
-        (5, vec![Speaker::FL, Speaker::FR, Speaker::FC, Speaker::BL, Speaker::BR]),
-        (6, vec![Speaker::FL, Speaker::FR, Speaker::FC, Speaker::LFE, Speaker::BL, Speaker::BR]),
+        (
+            5,
+            vec![
+                Speaker::FL,
+                Speaker::FR,
+                Speaker::FC,
+                Speaker::BL,
+                Speaker::BR,
+            ],
+        ),
+        (
+            6,
+            vec![
+                Speaker::FL,
+                Speaker::FR,
+                Speaker::FC,
+                Speaker::LFE,
+                Speaker::BL,
+                Speaker::BR,
+            ],
+        ),
         (
             8,
             vec![
@@ -68,7 +89,11 @@ fn round_trips_every_layout_through_the_encoder() {
         let chans: Vec<Vec<f32>> = (0..channels)
             .map(|c| {
                 // The LFE (slot 3 of 5.1 and 7.1) carries only the lowest lines.
-                let f = if channels >= 6 && c == 3 { 60.0 } else { 300.0 + 150.0 * f64::from(c) };
+                let f = if channels >= 6 && c == 3 {
+                    60.0
+                } else {
+                    300.0 + 150.0 * f64::from(c)
+                };
                 sine(f, 0.3, rate, len)
             })
             .collect();
@@ -105,14 +130,22 @@ fn round_trips_the_low_rates_through_the_encoder() {
         let mut adts = Decoder::new_adts();
         let stream: Vec<u8> = aus
             .iter()
-            .flat_map(|au| encode::adts_frame(enc.sampling_index(), enc.channel_configuration(), au))
+            .flat_map(|au| {
+                encode::adts_frame(enc.sampling_index(), enc.channel_configuration(), au)
+            })
             .collect();
         let (adts_rate, _, adts_out) = decode_all(&mut adts, &[stream]);
         assert_eq!(adts_rate, rate);
         for c in 0..2 {
-            assert_eq!(adts_out[c], out[c], "{rate} Hz channel {c}: ADTS and raw differ");
+            assert_eq!(
+                adts_out[c], out[c],
+                "{rate} Hz channel {c}: ADTS and raw differ"
+            );
             let d = encode::ENCODER_DELAY as usize;
-            let snr = snr_db(&chans[c][2048..len - 1024], &out[c][2048 + d..len - 1024 + d]);
+            let snr = snr_db(
+                &chans[c][2048..len - 1024],
+                &out[c][2048 + d..len - 1024 + d],
+            );
             assert!(snr > 40.0, "{rate} Hz channel {c}: {snr:.1} dB");
         }
     }
@@ -121,18 +154,29 @@ fn round_trips_the_low_rates_through_the_encoder() {
 #[test]
 fn adts_in_any_chunking_decodes_the_same_as_raw() {
     let rate = 44_100;
-    let chans = vec![sine(440.0, 0.4, rate, 20_000), sine(660.0, 0.3, rate, 20_000)];
+    let chans = vec![
+        sine(440.0, 0.4, rate, 20_000),
+        sine(660.0, 0.3, rate, 20_000),
+    ];
     let (enc, aus) = encode(&chans, rate);
     let adts: Vec<u8> = aus
         .iter()
         .flat_map(|au| encode::adts_frame(enc.sampling_index(), enc.channel_configuration(), au))
         .collect();
     let mut raw = Decoder::new_raw(&enc.audio_specific_config()).unwrap();
-    let want: Vec<f32> = aus.iter().flat_map(|au| raw.decode(au).unwrap().remove(0).samples).collect();
+    let want: Vec<f32> = aus
+        .iter()
+        .flat_map(|au| raw.decode(au).unwrap().remove(0).samples)
+        .collect();
     for chunk in [1usize, 7, 100, 1000, adts.len()] {
         let mut dec = Decoder::new_adts();
         // Garbage before the first frame is skipped to the syncword.
-        let mut got: Vec<f32> = dec.decode(&[0x00, 0xff, 0x12, 0x34]).unwrap().into_iter().flat_map(|f| f.samples).collect();
+        let mut got: Vec<f32> = dec
+            .decode(&[0x00, 0xff, 0x12, 0x34])
+            .unwrap()
+            .into_iter()
+            .flat_map(|f| f.samples)
+            .collect();
         for c in adts.chunks(chunk) {
             for f in dec.decode(c).unwrap() {
                 assert_eq!(f.sample_rate, rate);
@@ -195,12 +239,13 @@ fn a_fill_element_with_a_zero_escape_count_is_skipped() {
     while !bits.len().is_multiple_of(8) {
         bits.push('0');
     }
-    let au: Vec<u8> = (0..bits.len() / 8).map(|i| u8::from_str_radix(&bits[8 * i..8 * i + 8], 2).unwrap()).collect();
+    let au: Vec<u8> = (0..bits.len() / 8)
+        .map(|i| u8::from_str_radix(&bits[8 * i..8 * i + 8], 2).unwrap())
+        .collect();
     let mut dec = Decoder::new_raw(&[0x12, 0x08]).unwrap(); // LC 44.1 kHz mono
     let f = dec.decode(&au).unwrap().remove(0);
     assert!(f.samples.iter().all(|&v| v == 0.0));
 }
-
 
 // ---------------------------------------------------------------- HE-AAC
 
@@ -225,13 +270,23 @@ fn low_tones(rate: u32, len: usize, gain: f64) -> Vec<f32> {
             let tw = 2.0 * std::f64::consts::PI * i as f64 / f64::from(rate);
             (gain
                 * (0.2 * (tw * 300.0).sin() * (1.0 + 0.5 * (tw * 1.3).sin())
-                    + 0.15 * (tw * 517.0 + 0.3).sin() * (1.0 + 0.5 * (tw * 0.7).cos()))) as f32
+                    + 0.15 * (tw * 517.0 + 0.3).sin() * (1.0 + 0.5 * (tw * 0.7).cos())))
+                as f32
         })
         .collect()
 }
 
-fn he_encode(chans: &[Vec<f32>], rate: u32, profile: Profile, bitrate: u32) -> (Encoder, Vec<Vec<u8>>) {
-    let config = EncoderConfig { sample_rate: rate, channels: chans.len() as u8, bitrate };
+fn he_encode(
+    chans: &[Vec<f32>],
+    rate: u32,
+    profile: Profile,
+    bitrate: u32,
+) -> (Encoder, Vec<Vec<u8>>) {
+    let config = EncoderConfig {
+        sample_rate: rate,
+        channels: chans.len() as u8,
+        bitrate,
+    };
     let mut enc = Encoder::with_profile(config, profile).unwrap();
     let mut aus = enc.encode(&interleave(chans));
     aus.extend(enc.flush());
@@ -248,7 +303,11 @@ fn decode_all(dec: &mut Decoder, aus: &[Vec<u8>]) -> (u32, usize, Vec<Vec<f32>>)
     let rate = frames.last().unwrap().sample_rate;
     let mut out = vec![Vec::new(); n];
     for f in &frames {
-        assert_eq!((f.channels, f.sample_rate), (n, rate), "the output changed mid-stream");
+        assert_eq!(
+            (f.channels, f.sample_rate),
+            (n, rate),
+            "the output changed mid-stream"
+        );
         for (i, &v) in f.samples.iter().enumerate() {
             out[i % n].push(v);
         }
@@ -301,7 +360,10 @@ fn band_levels(x: &[f32], rate: u32, edges: &[f64]) -> Vec<f64> {
         let mut re: Vec<f64> = block
             .iter()
             .enumerate()
-            .map(|(i, &v)| f64::from(v) * (0.5 - 0.5 * (2.0 * std::f64::consts::PI * i as f64 / N as f64).cos()))
+            .map(|(i, &v)| {
+                f64::from(v)
+                    * (0.5 - 0.5 * (2.0 * std::f64::consts::PI * i as f64 / N as f64).cos())
+            })
             .collect();
         let mut im = vec![0.0; N];
         fft(&mut re, &mut im);
@@ -315,7 +377,8 @@ fn band_levels(x: &[f32], rate: u32, edges: &[f64]) -> Vec<f64> {
         .map(|e| {
             let lo = (e[0] / f64::from(rate) * N as f64) as usize;
             let hi = ((e[1] / f64::from(rate) * N as f64) as usize).min(N / 2);
-            let p: f64 = power[lo..hi].iter().sum::<f64>() / ((hi - lo).max(1) * blocks.max(1)) as f64;
+            let p: f64 =
+                power[lo..hi].iter().sum::<f64>() / ((hi - lo).max(1) * blocks.max(1)) as f64;
             10.0 * p.max(1e-30).log10()
         })
         .collect()
@@ -337,22 +400,46 @@ fn he_aac_round_trips_at_the_stated_delay() {
         let len = rate as usize * 2;
         // The same tones in every channel, panned (PS keeps a level
         // difference, not distinct signals within one band).
-        let chans: Vec<Vec<f32>> = (0..channels).map(|c| low_tones(rate, len, 1.0 - 0.4 * c as f64)).collect();
+        let chans: Vec<Vec<f32>> = (0..channels)
+            .map(|c| low_tones(rate, len, 1.0 - 0.4 * c as f64))
+            .collect();
         let (enc, aus) = he_encode(&chans, rate, profile, bitrate);
-        assert_eq!((enc.sample_rate(), enc.coding_rate(), enc.frame_samples()), (rate, rate / 2, 2048));
+        assert_eq!(
+            (enc.sample_rate(), enc.coding_rate(), enc.frame_samples()),
+            (rate, rate / 2, 2048)
+        );
         assert_eq!(enc.delay(), HE_AAC_DELAY);
         // Enough access units for the priming and every input sample.
-        assert_eq!(aus.len(), (len + HE_AAC_DELAY as usize).div_ceil(2048), "{profile:?} {rate}");
-        let mut dec = Decoder::new_raw(&enc.audio_specific_config_with(Signalling::BackwardCompatible)).unwrap();
+        assert_eq!(
+            aus.len(),
+            (len + HE_AAC_DELAY as usize).div_ceil(2048),
+            "{profile:?} {rate}"
+        );
+        let mut dec =
+            Decoder::new_raw(&enc.audio_specific_config_with(Signalling::BackwardCompatible))
+                .unwrap();
         let (out_rate, n, out) = decode_all(&mut dec, &aus);
         assert_eq!((out_rate, n), (rate, channels), "{profile:?} {rate}");
-        assert_eq!(dec.he_aac().unwrap().parametric_stereo, profile == Profile::HeAacV2);
+        assert_eq!(
+            dec.he_aac().unwrap().parametric_stereo,
+            profile == Profile::HeAacV2
+        );
         let d = HE_AAC_DELAY as usize;
         for c in 0..channels {
-            let snr = snr_db(&chans[c][4096..len - 4096], &out[c][4096 + d..len - 4096 + d]);
-            let kbps = aus.iter().map(Vec::len).sum::<usize>() as f64 * 8.0 * f64::from(rate) / (2048.0 * aus.len() as f64) / 1000.0;
-            eprintln!("{profile:?} {rate} Hz {channels} ch {kbps:.1} kb/s: channel {c} core-band SNR {snr:.1} dB");
-            assert!(snr > min_snr, "{profile:?} {rate} Hz channel {c}: {snr:.1} dB");
+            let snr = snr_db(
+                &chans[c][4096..len - 4096],
+                &out[c][4096 + d..len - 4096 + d],
+            );
+            let kbps = aus.iter().map(Vec::len).sum::<usize>() as f64 * 8.0 * f64::from(rate)
+                / (2048.0 * aus.len() as f64)
+                / 1000.0;
+            eprintln!(
+                "{profile:?} {rate} Hz {channels} ch {kbps:.1} kb/s: channel {c} core-band SNR {snr:.1} dB"
+            );
+            assert!(
+                snr > min_snr,
+                "{profile:?} {rate} Hz channel {c}: {snr:.1} dB"
+            );
         }
     }
 }
@@ -363,9 +450,15 @@ fn he_aac_round_trips_at_the_stated_delay() {
 /// crossover.
 #[test]
 fn sbr_extends_the_bandwidth_above_the_core() {
-    for (rate, profile, bitrate) in [(44_100u32, Profile::HeAac, 32_000u32), (48_000, Profile::HeAac, 48_000), (44_100, Profile::HeAacV2, 32_000)] {
+    for (rate, profile, bitrate) in [
+        (44_100u32, Profile::HeAac, 32_000u32),
+        (48_000, Profile::HeAac, 48_000),
+        (44_100, Profile::HeAacV2, 32_000),
+    ] {
         let len = rate as usize * 2;
-        let chans: Vec<Vec<f32>> = (0..2u32).map(|c| noise(c + 7, len).iter().map(|v| 0.25 * v).collect()).collect();
+        let chans: Vec<Vec<f32>> = (0..2u32)
+            .map(|c| noise(c + 7, len).iter().map(|v| 0.25 * v).collect())
+            .collect();
         let (enc, aus) = he_encode(&chans, rate, profile, bitrate);
         let asc = enc.audio_specific_config_with(Signalling::Hierarchical);
         let (_, _, out) = decode_all(&mut Decoder::new_raw(&asc).unwrap(), &aus);
@@ -377,18 +470,35 @@ fn sbr_extends_the_bandwidth_above_the_core() {
         let d = HE_AAC_DELAY as usize;
         let want = band_levels(&chans[0][4096..len - 8192], rate, &edges);
         let got = band_levels(&out[0][4096 + d..len - 8192 + d], rate, &edges);
-        let gaps: Vec<String> = (0..edges.len() - 1).map(|b| format!("{:+.1}", got[b] - want[b])).collect();
-        eprintln!("{profile:?} {rate} Hz: band level error 1-15 kHz (dB, per kHz): {}", gaps.join(" "));
+        let gaps: Vec<String> = (0..edges.len() - 1)
+            .map(|b| format!("{:+.1}", got[b] - want[b]))
+            .collect();
+        eprintln!(
+            "{profile:?} {rate} Hz: band level error 1-15 kHz (dB, per kHz): {}",
+            gaps.join(" ")
+        );
         for b in 0..edges.len() - 1 {
             let gap = got[b] - want[b];
-            assert!(gap.abs() < 2.5, "{profile:?} {rate} Hz, {}-{} Hz: {gap:+.1} dB", edges[b], edges[b + 1]);
+            assert!(
+                gap.abs() < 2.5,
+                "{profile:?} {rate} Hz, {}-{} Hz: {gap:+.1} dB",
+                edges[b],
+                edges[b + 1]
+            );
         }
         // The core alone stops well below its Nyquist frequency.
         let nyq = f64::from(rate) / 4.0;
         let core_top = band_levels(&core[0], rate / 2, &[nyq - 1500.0, nyq - 100.0])[0];
         let full_there = band_levels(&out[0], rate, &[nyq - 1500.0, nyq - 100.0])[0];
-        eprintln!("{profile:?} {rate} Hz: {:.0}-{:.0} Hz: core only {core_top:.1} dB, with SBR {full_there:.1} dB", nyq - 1500.0, nyq - 100.0);
-        assert!(core_top < full_there - 20.0, "{profile:?} {rate}: core {core_top:.1} dB, full {full_there:.1} dB");
+        eprintln!(
+            "{profile:?} {rate} Hz: {:.0}-{:.0} Hz: core only {core_top:.1} dB, with SBR {full_there:.1} dB",
+            nyq - 1500.0,
+            nyq - 100.0
+        );
+        assert!(
+            core_top < full_there - 20.0,
+            "{profile:?} {rate}: core {core_top:.1} dB, full {full_there:.1} dB"
+        );
     }
 }
 
@@ -403,17 +513,33 @@ fn parametric_stereo_keeps_level_differences_and_coherence() {
     let edges = [200.0, 1000.0, 3000.0, 6000.0, 12000.0];
     for (pan_db, uncorrelated) in [(6.0f64, false), (-10.0, false), (0.0, true)] {
         let g = 10f64.powf(pan_db / 40.0) as f32;
-        let right: Vec<f32> = if uncorrelated { noise(99, len) } else { n.clone() };
-        let chans = vec![n.iter().map(|v| 0.2 * g * v).collect::<Vec<f32>>(), right.iter().map(|v| 0.2 / g * v).collect()];
+        let right: Vec<f32> = if uncorrelated {
+            noise(99, len)
+        } else {
+            n.clone()
+        };
+        let chans = vec![
+            n.iter().map(|v| 0.2 * g * v).collect::<Vec<f32>>(),
+            right.iter().map(|v| 0.2 / g * v).collect(),
+        ];
         let (enc, aus) = he_encode(&chans, rate, Profile::HeAacV2, 32_000);
-        let (_, nch, out) = decode_all(&mut Decoder::new_raw(&enc.audio_specific_config()).unwrap(), &aus);
+        let (_, nch, out) = decode_all(
+            &mut Decoder::new_raw(&enc.audio_specific_config()).unwrap(),
+            &aus,
+        );
         assert_eq!(nch, 2);
         let d = HE_AAC_DELAY as usize;
-        let (l, r) = (&out[0][8192 + d..len - 8192 + d], &out[1][8192 + d..len - 8192 + d]);
+        let (l, r) = (
+            &out[0][8192 + d..len - 8192 + d],
+            &out[1][8192 + d..len - 8192 + d],
+        );
         let (ll, rl) = (band_levels(l, rate, &edges), band_levels(r, rate, &edges));
         for b in 0..edges.len() - 1 {
             let diff = ll[b] - rl[b];
-            assert!((diff - pan_db).abs() < 2.5, "pan {pan_db} dB, band {b}: {diff:.1} dB");
+            assert!(
+                (diff - pan_db).abs() < 2.5,
+                "pan {pan_db} dB, band {b}: {diff:.1} dB"
+            );
         }
         let (mut lr, mut l2, mut r2) = (0.0f64, 0.0f64, 0.0f64);
         for (&a, &b) in l.iter().zip(r) {
@@ -422,10 +548,19 @@ fn parametric_stereo_keeps_level_differences_and_coherence() {
             r2 += f64::from(b) * f64::from(b);
         }
         let corr = lr / (l2 * r2).sqrt();
-        let diffs: Vec<String> = (0..edges.len() - 1).map(|b| format!("{:+.1}", ll[b] - rl[b])).collect();
-        eprintln!("PS: input {pan_db:+} dB{}: output L-R per band {} dB, correlation {corr:.2}", if uncorrelated { " uncorrelated" } else { "" }, diffs.join(" "));
+        let diffs: Vec<String> = (0..edges.len() - 1)
+            .map(|b| format!("{:+.1}", ll[b] - rl[b]))
+            .collect();
+        eprintln!(
+            "PS: input {pan_db:+} dB{}: output L-R per band {} dB, correlation {corr:.2}",
+            if uncorrelated { " uncorrelated" } else { "" },
+            diffs.join(" ")
+        );
         if uncorrelated {
-            assert!(corr.abs() < 0.3, "uncorrelated input: output correlation {corr:.2}");
+            assert!(
+                corr.abs() < 0.3,
+                "uncorrelated input: output correlation {corr:.2}"
+            );
         } else {
             assert!(corr > 0.9, "pan {pan_db} dB: output correlation {corr:.2}");
         }
@@ -437,19 +572,38 @@ fn parametric_stereo_keeps_level_differences_and_coherence() {
 #[test]
 fn he_aac_signalling_forms_decode_alike() {
     let rate = 48_000;
-    let chans = vec![low_tones(rate, 30_000, 1.0), noise(5, 30_000).iter().map(|v| 0.1 * v).collect()];
+    let chans = vec![
+        low_tones(rate, 30_000, 1.0),
+        noise(5, 30_000).iter().map(|v| 0.1 * v).collect(),
+    ];
     for profile in [Profile::HeAac, Profile::HeAacV2] {
         let (enc, aus) = he_encode(&chans, rate, profile, 0);
-        let reference = decode_all(&mut Decoder::new_raw(&enc.audio_specific_config()).unwrap(), &aus);
+        let reference = decode_all(
+            &mut Decoder::new_raw(&enc.audio_specific_config()).unwrap(),
+            &aus,
+        );
         for s in [Signalling::BackwardCompatible, Signalling::Hierarchical] {
             let asc = enc.audio_specific_config_with(s);
             let parsed = AudioSpecificConfig::parse(&asc).unwrap();
-            assert!(parsed.sbr.explicit_sbr && parsed.sbr.explicit_ps == (profile == Profile::HeAacV2), "{s:?}");
-            assert_eq!((parsed.sample_rate, parsed.sbr.extension_rate), (rate / 2, Some(rate)));
-            assert!(decode_all(&mut Decoder::new_raw(&asc).unwrap(), &aus) == reference, "{profile:?} {s:?}");
+            assert!(
+                parsed.sbr.explicit_sbr && parsed.sbr.explicit_ps == (profile == Profile::HeAacV2),
+                "{s:?}"
+            );
+            assert_eq!(
+                (parsed.sample_rate, parsed.sbr.extension_rate),
+                (rate / 2, Some(rate))
+            );
+            assert!(
+                decode_all(&mut Decoder::new_raw(&asc).unwrap(), &aus) == reference,
+                "{profile:?} {s:?}"
+            );
         }
-        let adts: Vec<u8> =
-            aus.iter().flat_map(|au| encode::adts_frame(enc.sampling_index(), enc.channel_configuration(), au)).collect();
+        let adts: Vec<u8> = aus
+            .iter()
+            .flat_map(|au| {
+                encode::adts_frame(enc.sampling_index(), enc.channel_configuration(), au)
+            })
+            .collect();
         let mut dec = Decoder::new_adts();
         let frames = dec.decode(&adts).unwrap();
         assert_eq!(frames.len(), aus.len());
@@ -469,7 +623,8 @@ fn mono_he_aac_says_it_has_no_parametric_stereo() {
     // (5), sbrPresentFlag (1), the 32 kHz index (4), 0x548 (11),
     // psPresentFlag 0 (1): 49 bits.
     assert_eq!(asc.len(), 7, "{asc:02x?}");
-    let bits = u64::from_be_bytes([0, asc[0], asc[1], asc[2], asc[3], asc[4], asc[5], asc[6]]) >> (56 - 49);
+    let bits = u64::from_be_bytes([0, asc[0], asc[1], asc[2], asc[3], asc[4], asc[5], asc[6]])
+        >> (56 - 49);
     assert_eq!((bits >> 1) & 0x7ff, 0x548, "{asc:02x?}");
     assert_eq!(bits & 1, 0, "psPresentFlag");
     let parsed = AudioSpecificConfig::parse(&asc).unwrap();
@@ -477,19 +632,41 @@ fn mono_he_aac_says_it_has_no_parametric_stereo() {
     let (out_rate, channels, _) = decode_all(&mut Decoder::new_raw(&asc).unwrap(), &aus);
     assert_eq!((out_rate, channels), (rate, 1));
     // Stereo HE-AAC has no use for the flag and carries none.
-    let (enc, _) = he_encode(&[low_tones(rate, 4096, 1.0), low_tones(rate, 4096, 0.5)], rate, Profile::HeAac, 0);
-    assert_eq!(enc.audio_specific_config_with(Signalling::BackwardCompatible).len(), 5);
+    let (enc, _) = he_encode(
+        &[low_tones(rate, 4096, 1.0), low_tones(rate, 4096, 0.5)],
+        rate,
+        Profile::HeAac,
+        0,
+    );
+    assert_eq!(
+        enc.audio_specific_config_with(Signalling::BackwardCompatible)
+            .len(),
+        5
+    );
 }
 
 #[test]
 fn he_aac_encoder_refuses_what_it_cannot_code() {
-    let cfg = |sample_rate, channels| EncoderConfig { sample_rate, channels, bitrate: 0 };
+    let cfg = |sample_rate, channels| EncoderConfig {
+        sample_rate,
+        channels,
+        bitrate: 0,
+    };
     assert!(Encoder::with_profile(cfg(22_050, 2), Profile::HeAac).is_err());
     assert!(Encoder::with_profile(cfg(44_100, 1), Profile::HeAacV2).is_err());
-    let too_fast = EncoderConfig { sample_rate: 44_100, channels: 2, bitrate: 300_000 };
+    let too_fast = EncoderConfig {
+        sample_rate: 44_100,
+        channels: 2,
+        bitrate: 300_000,
+    };
     assert!(Encoder::with_profile(too_fast, Profile::HeAacV2).is_err());
     assert!(Encoder::with_profile(cfg(48_000, 6), Profile::HeAac).is_ok());
-    assert_eq!(Encoder::with_profile(cfg(48_000, 2), Profile::Lc).unwrap().profile(), Profile::Lc);
+    assert_eq!(
+        Encoder::with_profile(cfg(48_000, 2), Profile::Lc)
+            .unwrap()
+            .profile(),
+        Profile::Lc
+    );
 }
 
 /// A 5.1 HE-AAC stream: SBR on the SCE and both CPEs, the LFE upsampled.
@@ -498,14 +675,26 @@ fn he_aac_multichannel_round_trips() {
     let rate = 48_000;
     let len = 40_000;
     let chans: Vec<Vec<f32>> = (0..6)
-        .map(|c| if c == 3 { sine(60.0, 0.3, rate, len) } else { low_tones(rate, len, 0.5 + 0.1 * c as f64) })
+        .map(|c| {
+            if c == 3 {
+                sine(60.0, 0.3, rate, len)
+            } else {
+                low_tones(rate, len, 0.5 + 0.1 * c as f64)
+            }
+        })
         .collect();
     let (enc, aus) = he_encode(&chans, rate, Profile::HeAac, 0);
-    let (out_rate, n, out) = decode_all(&mut Decoder::new_raw(&enc.audio_specific_config()).unwrap(), &aus);
+    let (out_rate, n, out) = decode_all(
+        &mut Decoder::new_raw(&enc.audio_specific_config()).unwrap(),
+        &aus,
+    );
     assert_eq!((out_rate, n), (rate, 6));
     let d = HE_AAC_DELAY as usize;
     for c in 0..6 {
-        let snr = snr_db(&chans[c][4096..len - 4096], &out[c][4096 + d..len - 4096 + d]);
+        let snr = snr_db(
+            &chans[c][4096..len - 4096],
+            &out[c][4096 + d..len - 4096 + d],
+        );
         assert!(snr > 20.0, "channel {c}: {snr:.1} dB");
     }
 }

@@ -795,7 +795,11 @@ fn faad() -> String {
 /// Whether faad2's `faad` runs; the tests below are skipped (with a note)
 /// when it does not, unless `AAC_REQUIRE_FAAD` is set.
 fn faad_available() -> bool {
-    if std::process::Command::new(faad()).arg("-h").output().is_ok() {
+    if std::process::Command::new(faad())
+        .arg("-h")
+        .output()
+        .is_ok()
+    {
         return true;
     }
     assert!(
@@ -823,7 +827,11 @@ fn faad_decode(adts: &[u8], tag: &str) -> (Vec<f32>, u32, usize, String) {
     let _ = std::fs::remove_file(&src);
     let data = std::fs::read(&wav).unwrap_or_default();
     let _ = std::fs::remove_file(&wav);
-    let err = if out.status.success() { String::new() } else { String::from_utf8_lossy(&out.stderr).into_owned() };
+    let err = if out.status.success() {
+        String::new()
+    } else {
+        String::from_utf8_lossy(&out.stderr).into_owned()
+    };
     let (mut rate, mut channels, mut i) = (0u32, 0usize, 12);
     let mut pcm = Vec::new();
     while i + 8 <= data.len() {
@@ -835,7 +843,12 @@ fn faad_decode(adts: &[u8], tag: &str) -> (Vec<f32>, u32, usize, String) {
             }
             b"data" => {
                 let end = (i + 8 + len).min(data.len());
-                pcm = data[i + 8..end].as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect();
+                pcm = data[i + 8..end]
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|b| f32::from_le_bytes(*b))
+                    .collect();
                 break;
             }
             _ => {}
@@ -843,7 +856,8 @@ fn faad_decode(adts: &[u8], tag: &str) -> (Vec<f32>, u32, usize, String) {
         i += 8 + len + (len & 1);
     }
     if channels == 2 && adts.len() > 3 && ((adts[2] & 1) << 2) | (adts[3] >> 6) == 1 {
-        let (l, r): (Vec<f32>, Vec<f32>) = pcm.as_chunks::<2>().0.iter().map(|p| (p[0], p[1])).unzip();
+        let (l, r): (Vec<f32>, Vec<f32>) =
+            pcm.as_chunks::<2>().0.iter().map(|p| (p[0], p[1])).unzip();
         assert_eq!(l, r, "{tag}: faad's two channels of a mono stream differ");
         (pcm, channels) = (l, 1);
     }
@@ -917,7 +931,11 @@ fn faad_decodes_every_rate_bit_rate_and_layout_without_errors() {
             err.trim().is_empty(),
             "{rate} Hz, {channels} ch, {bitrate} b/s: faad said: {err}"
         );
-        assert_eq!((out_rate, out_channels), (rate, channels as usize), "{rate}/{channels}/{bitrate}");
+        assert_eq!(
+            (out_rate, out_channels),
+            (rate, channels as usize),
+            "{rate}/{channels}/{bitrate}"
+        );
         assert_eq!(
             pcm.len(),
             aus.len() * 1024 * channels as usize,
@@ -988,7 +1006,8 @@ fn reference_decoder_agrees_with_faad() {
         let mut aus = enc.encode(&samples);
         aus.extend(enc.flush());
 
-        let (pcm, out_rate, out_channels, err) = faad_decode(&to_adts(&enc, &aus), &format!("agree-{rate}-{channels}"));
+        let (pcm, out_rate, out_channels, err) =
+            faad_decode(&to_adts(&enc, &aus), &format!("agree-{rate}-{channels}"));
         assert!(err.trim().is_empty(), "faad said: {err}");
         assert_eq!((out_rate, out_channels), (rate, channels as usize));
         let mut dec = RefDecoder::new(rate);
@@ -1030,7 +1049,12 @@ fn coding_rate_keeps_native_rates_and_rounds_others_up() {
     assert_eq!(bitrate_range(8_000, 1), (8_000, 48_000));
     assert_eq!(bitrate_range(16_000, 2), (16_000, 192_000));
     // The default bit rate is held to that at the low rates.
-    let enc = Encoder::new(EncoderConfig { sample_rate: 8_000, channels: 2, bitrate: 0 }).unwrap();
+    let enc = Encoder::new(EncoderConfig {
+        sample_rate: 8_000,
+        channels: 2,
+        bitrate: 0,
+    })
+    .unwrap();
     assert_eq!(enc.sampling_index(), 11);
 }
 
@@ -1060,8 +1084,9 @@ fn low_rates_hold_their_bit_rate_and_quality() {
                             .collect()
                     })
                     .collect();
-                let notes: Vec<Vec<f32>> =
-                    (0..channels).map(|c| music(rate, len, c as u32 + 1)).collect();
+                let notes: Vec<Vec<f32>> = (0..channels)
+                    .map(|c| music(rate, len, c as u32 + 1))
+                    .collect();
                 for (name, input) in [("tones", &tones), ("music", &notes)] {
                     let out = encode_and_decode(input, rate, bitrate, true);
                     let actual = bitrate_of(&out.aus, rate);
@@ -1073,7 +1098,10 @@ fn low_rates_hold_their_bit_rate_and_quality() {
                         "{rate} Hz {channels} ch {name} @{bitrate}: {actual:.0} b/s ({:+.2}%), SNR {snr:.1} dB",
                         100.0 * off
                     );
-                    assert!(off.abs() < 0.05, "{rate}/{channels}/{bitrate} {name}: {actual}");
+                    assert!(
+                        off.abs() < 0.05,
+                        "{rate}/{channels}/{bitrate} {name}: {actual}"
+                    );
                     if name == "tones" {
                         assert!(snr > min_snr, "{rate}/{channels}/{bitrate}: {snr:.1} dB");
                     }

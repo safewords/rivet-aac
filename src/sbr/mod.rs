@@ -78,7 +78,10 @@ impl Sub for Cplx {
 impl Mul for Cplx {
     type Output = Cplx;
     fn mul(self, o: Cplx) -> Cplx {
-        Cplx::new(self.re * o.re - self.im * o.im, self.re * o.im + self.im * o.re)
+        Cplx::new(
+            self.re * o.re - self.im * o.im,
+            self.re * o.im + self.im * o.re,
+        )
     }
 }
 
@@ -121,8 +124,21 @@ impl SbrHeader {
     /// Whether a change from `prev` to `self` resets the SBR tool
     /// (4.6.18.3.1): the fields the frequency band tables depend on.
     pub fn resets(&self, prev: &SbrHeader) -> bool {
-        (self.start_freq, self.stop_freq, self.freq_scale, self.alter_scale, self.xover_band, self.noise_bands)
-            != (prev.start_freq, prev.stop_freq, prev.freq_scale, prev.alter_scale, prev.xover_band, prev.noise_bands)
+        (
+            self.start_freq,
+            self.stop_freq,
+            self.freq_scale,
+            self.alter_scale,
+            self.xover_band,
+            self.noise_bands,
+        ) != (
+            prev.start_freq,
+            prev.stop_freq,
+            prev.freq_scale,
+            prev.alter_scale,
+            prev.xover_band,
+            prev.noise_bands,
+        )
     }
 }
 

@@ -100,7 +100,9 @@ impl Layout {
         let mut speakers: Vec<Speaker> = elements.iter().flat_map(|e| e.2.clone()).collect();
         speakers.sort();
         if speakers.windows(2).any(|w| w[0] == w[1]) {
-            return Err(unsupported(format!("two channels on one speaker ({speakers:?})")));
+            return Err(unsupported(format!(
+                "two channels on one speaker ({speakers:?})"
+            )));
         }
         if speakers.is_empty() {
             return Err(invalid("a channel layout with no channels"));
@@ -147,7 +149,11 @@ impl Layout {
                 e(Cpe, &[BL, BR]),
                 e(Lfe, &[LFE]),
             ],
-            0 => return Err(invalid("channel configuration 0 without a program_config_element")),
+            0 => {
+                return Err(invalid(
+                    "channel configuration 0 without a program_config_element",
+                ));
+            }
             other => {
                 return Err(unsupported(format!(
                     "channel configuration {other} (1 to 7, or a program_config_element)"
@@ -205,8 +211,13 @@ impl Layout {
             return Err(invalid("a program_config_element with no channels"));
         }
         for (i, a) in slots.iter().enumerate() {
-            if slots[..i].iter().any(|b| b.kind == a.kind && b.tag == a.tag) {
-                return Err(invalid("a program_config_element that lists one element twice"));
+            if slots[..i]
+                .iter()
+                .any(|b| b.kind == a.kind && b.tag == a.tag)
+            {
+                return Err(invalid(
+                    "a program_config_element that lists one element twice",
+                ));
             }
         }
         Ok(Self {
@@ -298,12 +309,21 @@ mod tests {
         let outs: Vec<Vec<usize>> = l.slots.iter().map(|s| s.out.clone()).collect();
         assert_eq!(outs, vec![vec![2], vec![0, 1], vec![4, 5], vec![3]]);
         let l = Layout::for_configuration(7).unwrap();
-        assert_eq!(l.speakers.as_deref().unwrap(), [FL, FR, FC, LFE, BL, BR, SL, SR]);
+        assert_eq!(
+            l.speakers.as_deref().unwrap(),
+            [FL, FR, FC, LFE, BL, BR, SL, SR]
+        );
         assert_eq!(l.slot(Kind::Cpe, 9, 1).unwrap().out, vec![6, 7]);
         assert_eq!(l.slot(Kind::Cpe, 0, 2).unwrap().out, vec![4, 5]);
         assert!(l.slot(Kind::Cpe, 0, 3).is_none());
-        assert_eq!(Layout::for_configuration(1).unwrap().speakers.unwrap(), vec![FC]);
-        assert_eq!(Layout::for_configuration(4).unwrap().speakers.unwrap(), vec![FL, FR, FC, BC]);
+        assert_eq!(
+            Layout::for_configuration(1).unwrap().speakers.unwrap(),
+            vec![FC]
+        );
+        assert_eq!(
+            Layout::for_configuration(4).unwrap().speakers.unwrap(),
+            vec![FL, FR, FC, BC]
+        );
         assert!(Layout::for_configuration(0).is_err());
         assert!(Layout::for_configuration(8).is_err());
     }
@@ -319,7 +339,10 @@ mod tests {
             ..Default::default()
         };
         let l = Layout::for_program(&pce).unwrap();
-        assert_eq!(l.speakers.as_deref().unwrap(), [FL, FR, FC, LFE, BC, SL, SR]);
+        assert_eq!(
+            l.speakers.as_deref().unwrap(),
+            [FL, FR, FC, LFE, BC, SL, SR]
+        );
         assert_eq!(l.slot(Kind::Sce, 1, 0).unwrap().out, vec![4]);
         assert_eq!(l.slot(Kind::Cpe, 1, 0).unwrap().out, vec![5, 6]);
         // Two side pairs collide: element order, speakers unknown.
@@ -351,7 +374,10 @@ mod tests {
             ..Default::default()
         };
         let l = Layout::for_program(&pce).unwrap();
-        assert_eq!(l.speakers.as_deref().unwrap(), [FL, FR, FC, LFE, BL, BR, SL, SR]);
+        assert_eq!(
+            l.speakers.as_deref().unwrap(),
+            [FL, FR, FC, LFE, BL, BR, SL, SR]
+        );
         assert_eq!(l.slot(Kind::Cpe, 1, 0).unwrap().out, vec![6, 7]);
         assert_eq!(l.slot(Kind::Cpe, 2, 0).unwrap().out, vec![4, 5]);
     }

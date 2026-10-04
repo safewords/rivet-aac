@@ -48,18 +48,26 @@ impl FreqTables {
             _ => 32,
         };
         if k2 - k0 > max_span {
-            return Err(format!("SBR range of {} bands at {fs} Hz (at most {max_span})", k2 - k0));
+            return Err(format!(
+                "SBR range of {} bands at {fs} Hz (at most {max_span})",
+                k2 - k0
+            ));
         }
         let master = master_table(k0, k2, header.freq_scale, header.alter_scale)?;
         let xover = usize::from(header.xover_band);
         if xover >= master.len() - 1 {
-            return Err(format!("bs_xover_band {xover} beyond the {} master bands", master.len() - 1));
+            return Err(format!(
+                "bs_xover_band {xover} beyond the {} master bands",
+                master.len() - 1
+            ));
         }
         let high: Vec<usize> = master[xover..].to_vec();
         let n_high = high.len() - 1;
         let n_low = n_high / 2 + (n_high - 2 * (n_high / 2));
         let odd = n_high % 2;
-        let low: Vec<usize> = (0..=n_low).map(|k| if k == 0 { high[0] } else { high[2 * k - odd] }).collect();
+        let low: Vec<usize> = (0..=n_low)
+            .map(|k| if k == 0 { high[0] } else { high[2 * k - odd] })
+            .collect();
         let kx = high[0];
         let m = high[n_high] - kx;
         if kx > 32 {
@@ -262,7 +270,12 @@ pub(crate) fn band_limits(header: &SbrHeader, fs: u32) -> (usize, usize) {
 }
 
 /// `fMaster` (Figures 4.39 and 4.40).
-fn master_table(k0: usize, k2: usize, freq_scale: u8, alter_scale: u8) -> Result<Vec<usize>, String> {
+fn master_table(
+    k0: usize,
+    k2: usize,
+    freq_scale: u8,
+    alter_scale: u8,
+) -> Result<Vec<usize>, String> {
     let bad = || Err(format!("no SBR master table from subband {k0} to {k2}"));
     if freq_scale == 0 {
         let (dk, num_bands) = if alter_scale == 0 {
@@ -277,7 +290,11 @@ fn master_table(k0: usize, k2: usize, freq_scale: u8, alter_scale: u8) -> Result
         let mut vdk = vec![dk; n];
         let mut diff = k2 as i32 - (k0 as i32 + num_bands * dk);
         if diff != 0 {
-            let (incr, mut k): (i32, isize) = if diff < 0 { (1, 0) } else { (-1, n as isize - 1) };
+            let (incr, mut k): (i32, isize) = if diff < 0 {
+                (1, 0)
+            } else {
+                (-1, n as isize - 1)
+            };
             while diff != 0 {
                 if k < 0 || k as usize >= n {
                     return bad();
@@ -358,7 +375,12 @@ mod tests {
     use super::*;
 
     fn header(start: u8, stop: u8, xover: u8) -> SbrHeader {
-        SbrHeader { start_freq: start, stop_freq: stop, xover_band: xover, ..SbrHeader::default() }
+        SbrHeader {
+            start_freq: start,
+            stop_freq: stop,
+            xover_band: xover,
+            ..SbrHeader::default()
+        }
     }
 
     #[test]
@@ -422,7 +444,16 @@ mod tests {
         for fs in [32_000, 44_100, 48_000] {
             for start in 0..16u8 {
                 for stop in 0..16u8 {
-                    for (scale, alter) in [(0u8, 0u8), (0, 1), (1, 0), (1, 1), (2, 0), (2, 1), (3, 0), (3, 1)] {
+                    for (scale, alter) in [
+                        (0u8, 0u8),
+                        (0, 1),
+                        (1, 0),
+                        (1, 1),
+                        (2, 0),
+                        (2, 1),
+                        (3, 0),
+                        (3, 1),
+                    ] {
                         for xover in 0..3u8 {
                             for noise in 0..4u8 {
                                 let h = SbrHeader {
@@ -435,26 +466,47 @@ mod tests {
                                     limiter_bands: noise,
                                     ..SbrHeader::default()
                                 };
-                                let Ok(t) = FreqTables::new(&h, fs) else { continue };
+                                let Ok(t) = FreqTables::new(&h, fs) else {
+                                    continue;
+                                };
                                 let [low, high] = &t.table;
                                 // High is master from the crossover; low is
                                 // every other high border, both ends kept.
                                 assert_eq!(high[..], t.master[usize::from(xover)..]);
-                                assert_eq!((low[0], *low.last().unwrap()), (high[0], *high.last().unwrap()));
+                                assert_eq!(
+                                    (low[0], *low.last().unwrap()),
+                                    (high[0], *high.last().unwrap())
+                                );
                                 assert!(low.iter().all(|b| high.contains(b)));
                                 assert_eq!(low.len() - 1, (high.len() - 1).div_ceil(2));
                                 // Noise borders are low borders; 1 to 5 bands.
                                 assert!(t.noise.iter().all(|b| low.contains(b)));
                                 assert!((1..=5).contains(&t.nq()));
-                                assert_eq!((t.noise[0], *t.noise.last().unwrap()), (t.kx, t.kx + t.m));
+                                assert_eq!(
+                                    (t.noise[0], *t.noise.last().unwrap()),
+                                    (t.kx, t.kx + t.m)
+                                );
                                 // The limiter spans the range, increasing.
-                                assert_eq!((t.limiter[0], *t.limiter.last().unwrap()), (t.kx, t.kx + t.m));
-                                assert!(t.limiter.windows(2).all(|w| w[1] > w[0]), "{:?}", t.limiter);
+                                assert_eq!(
+                                    (t.limiter[0], *t.limiter.last().unwrap()),
+                                    (t.kx, t.kx + t.m)
+                                );
+                                assert!(
+                                    t.limiter.windows(2).all(|w| w[1] > w[0]),
+                                    "{:?}",
+                                    t.limiter
+                                );
                                 // Patches fill kx..kx+M from below k0, but for a last
                                 // patch of under 3 subbands, which is dropped.
                                 let total: usize = t.patch_num_subbands.iter().sum();
-                                assert!(total <= t.m && total + 3 > t.m, "{h:?} {fs}: {:?}", t.patch_num_subbands);
-                                for (n, s) in t.patch_num_subbands.iter().zip(&t.patch_start_subband) {
+                                assert!(
+                                    total <= t.m && total + 3 > t.m,
+                                    "{h:?} {fs}: {:?}",
+                                    t.patch_num_subbands
+                                );
+                                for (n, s) in
+                                    t.patch_num_subbands.iter().zip(&t.patch_start_subband)
+                                {
                                     assert!(s + n <= t.k0, "{h:?}");
                                 }
                             }

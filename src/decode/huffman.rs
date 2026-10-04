@@ -187,8 +187,8 @@ mod tests {
         let check = |name: &str, book: &[(u8, u32)], table: &Codebook| {
             for (index, &(len, code)) in book.iter().enumerate() {
                 for tail in [0u64, u64::MAX] {
-                    let bits = (u64::from(code) << (64 - u32::from(len)))
-                        | (tail >> u32::from(len));
+                    let bits =
+                        (u64::from(code) << (64 - u32::from(len))) | (tail >> u32::from(len));
                     let bytes = bits.to_be_bytes();
                     let mut r = BitReader::new(&bytes);
                     assert_eq!(table.decode(&mut r).unwrap(), index, "{name} {index}");

@@ -47,7 +47,13 @@ impl Filterbank {
     }
 
     /// Synthesize one frame of 1024 samples from `spec` into `out`.
-    pub fn synthesize(&mut self, st: &mut ChannelState, info: &IcsInfo, spec: &[f32], out: &mut [f32]) {
+    pub fn synthesize(
+        &mut self,
+        st: &mut ChannelState,
+        info: &IcsInfo,
+        spec: &[f32],
+        out: &mut [f32],
+    ) {
         let shape = usize::from(info.window_shape);
         let left = usize::from(st.prev_shape.unwrap_or(info.window_shape));
         let z = &mut self.z;
@@ -56,7 +62,11 @@ impl Filterbank {
             let y = &mut self.buf[..256];
             for j in 0..8 {
                 self.imdct_short.inverse(&spec[128 * j..128 * (j + 1)], y);
-                let lw = if j == 0 { &self.short[left] } else { &self.short[shape] };
+                let lw = if j == 0 {
+                    &self.short[left]
+                } else {
+                    &self.short[shape]
+                };
                 let rw = &self.short[shape];
                 let at = 448 + 128 * j;
                 for n in 0..128 {

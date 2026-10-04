@@ -10,8 +10,8 @@
 use super::bits::BitWriter;
 use crate::tables::codebooks::{SCALEFACTOR, SPECTRUM};
 
-use crate::tables::codebooks::PARAMS as CODEBOOK;
 pub(super) use crate::tables::codebooks::ESC_HCB;
+use crate::tables::codebooks::PARAMS as CODEBOOK;
 
 /// Codebook numbers that can code any band (0 only codes all-zero bands).
 pub(super) const NUM_CODEBOOKS: usize = 12;
@@ -86,14 +86,20 @@ pub(super) fn band_bits(cb: u8, q: &[i32]) -> u32 {
 #[inline(always)]
 fn signed_bits<const DIM: usize, const M: i32>(table: &[(u8, u32)], q: &[i32]) -> u32 {
     let (tuples, _) = q.as_chunks::<DIM>();
-    tuples.iter().map(|t| u32::from(table[t.iter().fold(0, |idx, &v| idx * M + v + M / 2) as usize].0)).sum()
+    tuples
+        .iter()
+        .map(|t| u32::from(table[t.iter().fold(0, |idx, &v| idx * M + v + M / 2) as usize].0))
+        .sum()
 }
 
 /// [`band_bits`] for an unsigned codebook of `DIM`-tuples and modulus `M`:
 /// magnitudes (16 flags an escape when `ESC`), a sign bit per non-zero
 /// value, and the escape sequences.
 #[inline(always)]
-fn unsigned_bits<const DIM: usize, const M: i32, const ESC: bool>(table: &[(u8, u32)], q: &[i32]) -> u32 {
+fn unsigned_bits<const DIM: usize, const M: i32, const ESC: bool>(
+    table: &[(u8, u32)],
+    q: &[i32],
+) -> u32 {
     let (tuples, _) = q.as_chunks::<DIM>();
     let mut bits = 0;
     for t in tuples {

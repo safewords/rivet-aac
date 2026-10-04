@@ -71,7 +71,9 @@ fn sampling(r: &mut BitReader) -> Result<(u8, u32)> {
             Ok((tables::index_for_explicit_rate(rate), rate))
         }
         0..=12 => Ok((index, SAMPLING_FREQUENCIES[usize::from(index)])),
-        _ => Err(invalid(format!("reserved sampling_frequency_index {index}"))),
+        _ => Err(invalid(format!(
+            "reserved sampling_frequency_index {index}"
+        ))),
     }
 }
 
@@ -99,13 +101,19 @@ impl AudioSpecificConfig {
                 ));
             }
             AAC_MAIN => {
-                return Err(unsupported("AAC Main (audio object type 1) is not implemented"));
+                return Err(unsupported(
+                    "AAC Main (audio object type 1) is not implemented",
+                ));
             }
             AAC_SSR => {
-                return Err(unsupported("AAC SSR (audio object type 3) is not implemented"));
+                return Err(unsupported(
+                    "AAC SSR (audio object type 3) is not implemented",
+                ));
             }
             AAC_LTP => {
-                return Err(unsupported("AAC LTP (audio object type 4) is not implemented"));
+                return Err(unsupported(
+                    "AAC LTP (audio object type 4) is not implemented",
+                ));
             }
             other => {
                 return Err(unsupported(format!(
@@ -208,7 +216,9 @@ impl AdtsHeader {
         r.skip(11)?; // adts_buffer_fullness
         let raw_data_blocks = r.read(2)? as usize + 1;
         if sampling_index > 12 {
-            return Err(invalid(format!("reserved sampling_frequency_index {sampling_index}")));
+            return Err(invalid(format!(
+                "reserved sampling_frequency_index {sampling_index}"
+            )));
         }
         let header = Self {
             profile,
@@ -219,7 +229,9 @@ impl AdtsHeader {
             raw_data_blocks,
         };
         if frame_length < header.header_len() {
-            return Err(invalid(format!("ADTS frame_length {frame_length} shorter than its header")));
+            return Err(invalid(format!(
+                "ADTS frame_length {frame_length} shorter than its header"
+            )));
         }
         Ok(header)
     }
@@ -282,9 +294,7 @@ impl ProgramConfig {
             r.skip(3)?; // matrix_mixdown_idx, pseudo_surround_enable
         }
         let mut elements = |n: usize| -> Result<Vec<(bool, u8)>> {
-            (0..n)
-                .map(|_| Ok((r.bit()?, r.read(4)? as u8)))
-                .collect()
+            (0..n).map(|_| Ok((r.bit()?, r.read(4)? as u8))).collect()
         };
         let front = elements(n_front)?;
         let side = elements(n_side)?;
@@ -321,7 +331,12 @@ mod tests {
         // 44.1 kHz stereo AAC-LC: 00010 0100 0010 000.
         let asc = AudioSpecificConfig::parse(&[0x12, 0x10]).unwrap();
         assert_eq!(
-            (asc.object_type, asc.sampling_index, asc.sample_rate, asc.channel_configuration),
+            (
+                asc.object_type,
+                asc.sampling_index,
+                asc.sample_rate,
+                asc.channel_configuration
+            ),
             (2, 4, 44_100, 2)
         );
         assert!(!asc.sbr.explicit_sbr);
@@ -351,8 +366,12 @@ mod tests {
         // LC 22.05 kHz stereo, then sync 0x2b7, AOT 5, sbrPresentFlag 1,
         // extension index 4 (44.1 kHz), then sync 0x548 and psPresentFlag 1.
         let bits = "0001001110010000".to_string()
-            + "01010110111" + "00101" + "1" + "0100"
-            + "10101001000" + "1";
+            + "01010110111"
+            + "00101"
+            + "1"
+            + "0100"
+            + "10101001000"
+            + "1";
         let mut bits = bits;
         while !bits.len().is_multiple_of(8) {
             bits.push('0');
@@ -390,7 +409,10 @@ mod tests {
         let h = AdtsHeader::parse(&[0xff, 0xf1, 0x4c, 0x80, 0x20, 0x1f, 0xfc]).unwrap();
         assert_eq!(h.object_type(), 2);
         assert_eq!((h.sampling_index, h.channel_configuration), (3, 2));
-        assert_eq!((h.frame_length, h.raw_data_blocks, h.header_len()), (0x100, 1, 7));
+        assert_eq!(
+            (h.frame_length, h.raw_data_blocks, h.header_len()),
+            (0x100, 1, 7)
+        );
         assert!(AdtsHeader::parse(&[0xff, 0xf1, 0x4c]).is_err());
         assert!(AdtsHeader::parse(&[0xfe, 0xf1, 0x4c, 0x80, 0x20, 0x1f, 0xfc]).is_err());
     }

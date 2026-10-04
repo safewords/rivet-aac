@@ -90,7 +90,9 @@ pub(super) fn write_ics(
     if let Some(&(first, _)) = pulses.first() {
         // pulse_data() (Table 21): the first offset counts from the start of
         // the band holding the first pulse, the others from the previous one.
-        let start_sfb = (0..nswb).rfind(|&b| usize::from(layout.swb[b]) <= first).unwrap();
+        let start_sfb = (0..nswb)
+            .rfind(|&b| usize::from(layout.swb[b]) <= first)
+            .unwrap();
         w.put(1, 1);
         w.put(pulses.len() as u32 - 1, 2);
         w.put(start_sfb as u32, 6);
@@ -251,7 +253,10 @@ pub(super) fn he_aac_audio_specific_config(
     if signalling == Implicit {
         return core.to_vec();
     }
-    let ext_index = crate::tables::SAMPLING_FREQUENCIES.iter().position(|&r| r == rate).expect("an HE-AAC rate has an index") as u32;
+    let ext_index = crate::tables::SAMPLING_FREQUENCIES
+        .iter()
+        .position(|&r| r == rate)
+        .expect("an HE-AAC rate has an index") as u32;
     let mut w = BitWriter::with_capacity(8);
     match signalling {
         Hierarchical => {

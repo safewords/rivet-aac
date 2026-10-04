@@ -39,15 +39,20 @@ fn corpus() -> &'static [Stream] {
                 .map(|i| {
                     seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
                     let click = if (i / n) % 3000 < 20 { 0.8 } else { 0.0 };
-                    0.3 * ((i / n) as f32 * 0.05).sin() + click + (seed >> 9) as f32 / 8e6 - 0.5 * 0.01
+                    0.3 * ((i / n) as f32 * 0.05).sin() + click + (seed >> 9) as f32 / 8e6
+                        - 0.5 * 0.01
                 })
                 .collect();
             let mut aus = enc.encode(&samples);
             aus.extend(enc.flush());
-            let signalling = if profile == Profile::HeAacV2 { Signalling::Hierarchical } else { Signalling::BackwardCompatible };
+            let signalling = if profile == Profile::HeAacV2 {
+                Signalling::Hierarchical
+            } else {
+                Signalling::BackwardCompatible
+            };
             (enc.audio_specific_config_with(signalling), aus)
         })
-            .collect()
+        .collect()
     })
 }
 
@@ -63,7 +68,10 @@ fn mutation() -> impl Strategy<Value = Mutation> {
     prop_oneof![
         (any::<usize>(), 0u8..8).prop_map(|(at, bit)| Mutation::Flip { at, bit }),
         any::<usize>().prop_map(Mutation::Truncate),
-        (any::<usize>(), proptest::collection::vec(any::<u8>(), 0..16))
+        (
+            any::<usize>(),
+            proptest::collection::vec(any::<u8>(), 0..16)
+        )
             .prop_map(|(at, bytes)| Mutation::Splice { at, bytes }),
         (any::<usize>(), any::<u8>()).prop_map(|(at, byte)| Mutation::Set { at, byte }),
     ]

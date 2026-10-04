@@ -217,21 +217,33 @@ struct SbrElement {
 }
 
 impl SbrState {
-    fn new(core_rate: u32, table_rate: u32, channels: usize, downsampled: bool, ps_output: bool) -> Self {
+    fn new(
+        core_rate: u32,
+        table_rate: u32,
+        channels: usize,
+        downsampled: bool,
+        ps_output: bool,
+    ) -> Self {
         let downsampled = downsampled || 2 * u64::from(core_rate) > 96_000;
         Self {
             fs: 2 * table_rate,
             downsampled,
             ps_output,
             elements: (0..channels).map(|_| SbrElement::default()).collect(),
-            channels: (0..channels).map(|_| SbrChannel::new(downsampled)).collect(),
+            channels: (0..channels)
+                .map(|_| SbrChannel::new(downsampled))
+                .collect(),
             ps: PsDecoder::default(),
             right: SbrChannel::new(downsampled),
         }
     }
 
     fn output_rate(&self, core_rate: u32) -> u32 {
-        if self.downsampled { core_rate } else { 2 * core_rate }
+        if self.downsampled {
+            core_rate
+        } else {
+            2 * core_rate
+        }
     }
 }
 
@@ -269,7 +281,9 @@ impl Decoder {
 
     /// A decoder for an ADTS byte stream.
     pub fn new_adts() -> Self {
-        Self::with_transport(Transport::Adts { pending: Vec::new() })
+        Self::with_transport(Transport::Adts {
+            pending: Vec::new(),
+        })
     }
 
     fn with_transport(transport: Transport) -> Self {
@@ -353,7 +367,10 @@ impl Decoder {
         if self.ps_output() {
             return Some(2);
         }
-        self.stream.as_ref().map(|s| s.layout.channels).filter(|&n| n > 0)
+        self.stream
+            .as_ref()
+            .map(|s| s.layout.channels)
+            .filter(|&n| n > 0)
     }
 
     /// The output's speakers, in slot order; `None` before the layout is
@@ -362,11 +379,14 @@ impl Decoder {
         if self.ps_output() {
             return Some(&PS_SPEAKERS);
         }
-        self.stream.as_ref().and_then(|s| s.layout.speakers.as_deref())
+        self.stream
+            .as_ref()
+            .and_then(|s| s.layout.speakers.as_deref())
     }
 
     fn ps_output(&self) -> bool {
-        self.sbr.as_ref().is_some_and(|s| s.ps_output) && self.stream.as_ref().is_some_and(|s| s.layout.channels == 1)
+        self.sbr.as_ref().is_some_and(|s| s.ps_output)
+            && self.stream.as_ref().is_some_and(|s| s.layout.channels == 1)
     }
 
     /// Set when the stream is HE-AAC: from the start for explicit
@@ -377,10 +397,12 @@ impl Decoder {
         (self.signalled.explicit_sbr || self.implicit_sbr).then_some(HeAac {
             explicit: self.signalled.explicit_sbr,
             parametric_stereo: self.signalled.explicit_ps || self.ps_output(),
-            extension_rate: self
-                .signalled
-                .extension_rate
-                .or_else(|| self.stream.as_ref().filter(|_| self.implicit_sbr).map(|s| 2 * s.sample_rate)),
+            extension_rate: self.signalled.extension_rate.or_else(|| {
+                self.stream
+                    .as_ref()
+                    .filter(|_| self.implicit_sbr)
+                    .map(|s| 2 * s.sample_rate)
+            }),
         })
     }
 
@@ -458,7 +480,11 @@ impl Decoder {
         }
     }
 
-    fn decode_adts_frame(&mut self, header: &AdtsHeader, frame: &[u8]) -> Result<Vec<DecodedFrame>> {
+    fn decode_adts_frame(
+        &mut self,
+        header: &AdtsHeader,
+        frame: &[u8],
+    ) -> Result<Vec<DecodedFrame>> {
         match header.object_type() {
             object_type::AAC_LC => {}
             object_type::AAC_MAIN => {
@@ -576,7 +602,10 @@ impl Decoder {
                         let right = ics::decode(r, &rt, Some(&info), true)?;
                         (left, right)
                     } else {
-                        (ics::decode(r, &rt, None, false)?, ics::decode(r, &rt, None, false)?)
+                        (
+                            ics::decode(r, &rt, None, false)?,
+                            ics::decode(r, &rt, None, false)?,
+                        )
                     };
                     let slot = self.slot(&stream, Kind::Cpe, tag, &mut seen)?;
                     self.tool_use.channel(&left);
@@ -585,7 +614,11 @@ impl Decoder {
                         for g in 0..left.info.group_len.len() {
                             for sfb in 0..left.info.max_sfb {
                                 let cr = right.sfb_cb[g][sfb];
-                                if ms.used[g][sfb] && ms.present != 0 && cr != ics::INTENSITY_HCB && cr != ics::INTENSITY_HCB2 {
+                                if ms.used[g][sfb]
+                                    && ms.present != 0
+                                    && cr != ics::INTENSITY_HCB
+                                    && cr != ics::INTENSITY_HCB2
+                                {
                                     self.tool_use.ms_bands += 1;
                                 }
                             }
@@ -650,10 +683,14 @@ impl Decoder {
                     if ext == 0b1101 || ext == 0b1110 {
                         self.implicit_sbr = true;
                     }
-                    let wanted = (ext == 0b1101 || ext == 0b1110) && !self.core_only && self.sbr_decision != Some(false);
+                    let wanted = (ext == 0b1101 || ext == 0b1110)
+                        && !self.core_only
+                        && self.sbr_decision != Some(false);
                     match (&last_audio, wanted) {
                         (Some((stereo, slots)), true) => {
-                            let payload = (0..count).map(|_| Ok(r.read(8)? as u8)).collect::<Result<Vec<u8>>>()?;
+                            let payload = (0..count)
+                                .map(|_| Ok(r.read(8)? as u8))
+                                .collect::<Result<Vec<u8>>>()?;
                             if self.sbr.is_none() {
                                 self.start_sbr();
                             }
@@ -661,7 +698,14 @@ impl Decoder {
                             let element = &mut sbr.elements[slots[0]];
                             let mut pr = BitReader::new(&payload);
                             pr.skip(4)?;
-                            match sbr::parse_extension(&mut pr, *stereo, ext == 0b1110, &mut element.config, &mut element.ps_header, sbr.fs) {
+                            match sbr::parse_extension(
+                                &mut pr,
+                                *stereo,
+                                ext == 0b1110,
+                                &mut element.config,
+                                &mut element.ps_header,
+                                sbr.fs,
+                            ) {
                                 Ok(Payload::Frame(data)) => {
                                     self.tool_use.sbr += 1;
                                     self.tool_use.ps += u64::from(data.ps.is_some());
@@ -719,7 +763,8 @@ impl Decoder {
             let mut core = vec![vec![0.0f32; FRAME_SAMPLES]; n];
             for (c, spec) in spectra.iter().enumerate() {
                 let (info, spec) = spec.as_ref().unwrap_or(&silent);
-                self.filterbank.synthesize(&mut self.channels[c], info, spec, &mut core[c]);
+                self.filterbank
+                    .synthesize(&mut self.channels[c], info, spec, &mut core[c]);
             }
             return Ok(sbr_output(sbr, &core, &sbr_frames, &stream));
         }
@@ -740,7 +785,13 @@ impl Decoder {
     }
 
     /// The output channels of the next element of `kind` with `tag`.
-    fn slot(&self, stream: &Stream, kind: Kind, tag: u8, seen: &mut [usize; 3]) -> Result<Vec<usize>> {
+    fn slot(
+        &self,
+        stream: &Stream,
+        kind: Kind,
+        tag: u8,
+        seen: &mut [usize; 3],
+    ) -> Result<Vec<usize>> {
         let nth = &mut seen[kind as usize];
         let slot = stream.layout.slot(kind, tag, *nth).ok_or_else(|| {
             invalid(format!(
@@ -754,12 +805,19 @@ impl Decoder {
 
 /// Run each channel's core output through the SBR tool (and a mono one's
 /// through the PS tool) and synthesise the output frame.
-fn sbr_output(sbr: &mut SbrState, core: &[Vec<f32>], frames: &[(Vec<usize>, ElementData)], stream: &Stream) -> DecodedFrame {
+fn sbr_output(
+    sbr: &mut SbrState,
+    core: &[Vec<f32>],
+    frames: &[(Vec<usize>, ElementData)],
+    stream: &Stream,
+) -> DecodedFrame {
     let n = core.len();
     let mut done = vec![false; n];
     let mut kmax = 32;
     for (slots, data) in frames {
-        let Some(cfg) = sbr.elements[slots[0]].config.as_ref() else { continue };
+        let Some(cfg) = sbr.elements[slots[0]].config.as_ref() else {
+            continue;
+        };
         if data.channels.len() > slots.len() {
             continue;
         }
@@ -799,11 +857,24 @@ fn sbr_output(sbr: &mut SbrState, core: &[Vec<f32>], frames: &[(Vec<usize>, Elem
     let rate = sbr.output_rate(stream.sample_rate);
     let mut out = vec![0.0f32; len];
     if sbr.ps_output && n == 1 {
-        let ps = frames.iter().find(|(slots, _)| slots[0] == 0).and_then(|(_, d)| d.ps.as_ref());
+        let ps = frames
+            .iter()
+            .find(|(slots, _)| slots[0] == 0)
+            .and_then(|(_, d)| d.ps.as_ref());
         let mono = &mut sbr.channels[0];
         let x = std::mem::take(&mut mono.x);
-        let (mut left, mut right) = (vec![[crate::sbr::Cplx::ZERO; 64]; x.len()], vec![[crate::sbr::Cplx::ZERO; 64]; x.len()]);
-        sbr.ps.process(ps, &x, |k, l| mono.low_band_lookahead(k, l), kmax, &mut left, &mut right);
+        let (mut left, mut right) = (
+            vec![[crate::sbr::Cplx::ZERO; 64]; x.len()],
+            vec![[crate::sbr::Cplx::ZERO; 64]; x.len()],
+        );
+        sbr.ps.process(
+            ps,
+            &x,
+            |k, l| mono.low_band_lookahead(k, l),
+            kmax,
+            &mut left,
+            &mut right,
+        );
         mono.x = x;
         let mut samples = vec![0.0f32; 2 * len];
         mono.synthesize(&left, &mut out);
@@ -814,7 +885,12 @@ fn sbr_output(sbr: &mut SbrState, core: &[Vec<f32>], frames: &[(Vec<usize>, Elem
         for (i, &v) in out.iter().enumerate() {
             samples[2 * i + 1] = v / 32768.0;
         }
-        return DecodedFrame { samples, sample_rate: rate, channels: 2, speakers: Some(PS_SPEAKERS.to_vec()) };
+        return DecodedFrame {
+            samples,
+            sample_rate: rate,
+            channels: 2,
+            speakers: Some(PS_SPEAKERS.to_vec()),
+        };
     }
     let mut samples = vec![0.0f32; n * len];
     for c in 0..n {
@@ -826,12 +902,23 @@ fn sbr_output(sbr: &mut SbrState, core: &[Vec<f32>], frames: &[(Vec<usize>, Elem
             samples[i * n + c] = v / 32768.0;
         }
     }
-    DecodedFrame { samples, sample_rate: rate, channels: n, speakers: stream.layout.speakers.clone() }
+    DecodedFrame {
+        samples,
+        sample_rate: rate,
+        channels: n,
+        speakers: stream.layout.speakers.clone(),
+    }
 }
 
 enum AdtsScan {
-    Frame { skip: usize, len: usize, header: AdtsHeader },
-    NeedMore { skip: usize },
+    Frame {
+        skip: usize,
+        len: usize,
+        header: AdtsHeader,
+    },
+    NeedMore {
+        skip: usize,
+    },
 }
 
 /// Decode the first access unit of a stream to learn what it is: its output

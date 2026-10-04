@@ -87,13 +87,24 @@ impl SbrTable {
         static TREES: OnceLock<Vec<Tree>> = OnceLock::new();
         let trees = TREES.get_or_init(|| {
             use SbrTable::*;
-            [TEnv15, FEnv15, TEnvBal15, FEnvBal15, TEnv30, FEnv30, TEnvBal30, FEnvBal30, TNoise30, TNoiseBal30]
-                .iter()
-                .map(|t| {
-                    let (e, lav) = t.entries();
-                    Tree::new(e, lav)
-                })
-                .collect()
+            [
+                TEnv15,
+                FEnv15,
+                TEnvBal15,
+                FEnvBal15,
+                TEnv30,
+                FEnv30,
+                TEnvBal30,
+                FEnvBal30,
+                TNoise30,
+                TNoiseBal30,
+            ]
+            .iter()
+            .map(|t| {
+                let (e, lav) = t.entries();
+                Tree::new(e, lav)
+            })
+            .collect()
         });
         &trees[self as usize]
     }
@@ -119,7 +130,11 @@ impl SbrTable {
     /// tables are the 3 dB envelope ones (Table 4.A.78, Note 2).
     pub fn noise(balance: bool) -> (SbrTable, SbrTable) {
         use SbrTable::*;
-        if balance { (TNoiseBal30, FEnvBal30) } else { (TNoise30, FEnv30) }
+        if balance {
+            (TNoiseBal30, FEnvBal30)
+        } else {
+            (TNoise30, FEnv30)
+        }
     }
 }
 
@@ -159,13 +174,15 @@ impl PsTable {
         static TREES: OnceLock<Vec<Tree>> = OnceLock::new();
         let trees = TREES.get_or_init(|| {
             use PsTable::*;
-            [IidDf, IidDt, IidDfFine, IidDtFine, IccDf, IccDt, IpdDf, IpdDt, OpdDf, OpdDt]
-                .iter()
-                .map(|t| {
-                    let (e, off) = t.entries();
-                    Tree::new(e, off)
-                })
-                .collect()
+            [
+                IidDf, IidDt, IidDfFine, IidDtFine, IccDf, IccDt, IpdDf, IpdDt, OpdDf, OpdDt,
+            ]
+            .iter()
+            .map(|t| {
+                let (e, off) = t.entries();
+                Tree::new(e, off)
+            })
+            .collect()
         });
         &trees[self as usize]
     }
@@ -184,7 +201,18 @@ mod tests {
     #[test]
     fn every_value_round_trips_through_its_codeword() {
         use SbrTable::*;
-        for t in [TEnv15, FEnv15, TEnvBal15, FEnvBal15, TEnv30, FEnv30, TEnvBal30, FEnvBal30, TNoise30, TNoiseBal30] {
+        for t in [
+            TEnv15,
+            FEnv15,
+            TEnvBal15,
+            FEnvBal15,
+            TEnv30,
+            FEnv30,
+            TEnvBal30,
+            FEnvBal30,
+            TNoise30,
+            TNoiseBal30,
+        ] {
             let (e, lav) = t.entries();
             let mut w = BitWriter::with_capacity(64);
             for v in -lav..=lav {
@@ -201,7 +229,9 @@ mod tests {
             assert!(t.code(lav + 1).is_none() && t.code(-lav - 1).is_none());
         }
         use PsTable::*;
-        for t in [IidDf, IidDt, IidDfFine, IidDtFine, IccDf, IccDt, IpdDf, IpdDt, OpdDf, OpdDt] {
+        for t in [
+            IidDf, IidDt, IidDfFine, IidDtFine, IccDf, IccDt, IpdDf, IpdDt, OpdDf, OpdDt,
+        ] {
             let (e, off) = t.entries();
             let mut w = BitWriter::with_capacity(64);
             let values: Vec<i32> = (0..e.len() as i32).map(|i| i - off).collect();

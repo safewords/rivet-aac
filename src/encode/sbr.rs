@@ -73,8 +73,14 @@ impl Bits {
 /// The SBR crossover for a bit rate per channel: lower rates hand more of
 /// the spectrum to SBR.
 fn crossover_hz(bits_per_channel: u32) -> f64 {
-    const POINTS: [(f64, f64); 6] =
-        [(10_000.0, 4_500.0), (16_000.0, 5_200.0), (24_000.0, 6_400.0), (32_000.0, 7_600.0), (48_000.0, 9_500.0), (64_000.0, 11_000.0)];
+    const POINTS: [(f64, f64); 6] = [
+        (10_000.0, 4_500.0),
+        (16_000.0, 5_200.0),
+        (24_000.0, 6_400.0),
+        (32_000.0, 7_600.0),
+        (48_000.0, 9_500.0),
+        (64_000.0, 11_000.0),
+    ];
     let b = f64::from(bits_per_channel);
     if b <= POINTS[0].0 {
         return POINTS[0].1;
@@ -97,9 +103,15 @@ pub(crate) fn choose_header(fs: u32, bits_per_channel: u32) -> (SbrHeader, FreqT
     let mut best: Option<(f64, SbrHeader, FreqTables)> = None;
     for start in 0..16u8 {
         for stop in 0..14u8 {
-            let h = SbrHeader { start_freq: start, stop_freq: stop, ..SbrHeader::default() };
+            let h = SbrHeader {
+                start_freq: start,
+                stop_freq: stop,
+                ..SbrHeader::default()
+            };
             let (k0, k2) = band_limits(&h, fs);
-            let Ok(t) = FreqTables::new(&h, fs) else { continue };
+            let Ok(t) = FreqTables::new(&h, fs) else {
+                continue;
+            };
             let cost = (k0 as f64 - want_kx).abs() * 2.0 + (k2 as f64 - want_k2).abs();
             if best.as_ref().is_none_or(|b| cost < b.0) {
                 best = Some((cost, h, t));
@@ -156,7 +168,14 @@ pub(crate) struct HeFrontEnd {
 impl HeFrontEnd {
     /// `elements`: the core encoder's SCE / CPE elements as their core
     /// channel slots; `bits_per_channel` the core bit rate per channel.
-    pub fn new(fs: u32, in_channels: usize, core_channels: usize, ps: bool, elements: &[Vec<usize>], bits_per_channel: u32) -> Self {
+    pub fn new(
+        fs: u32,
+        in_channels: usize,
+        core_channels: usize,
+        ps: bool,
+        elements: &[Vec<usize>],
+        bits_per_channel: u32,
+    ) -> Self {
         let (header, tables) = choose_header(fs, bits_per_channel);
         Self {
             in_channels,
@@ -200,7 +219,12 @@ impl HeFrontEnd {
         let mut core = vec![0.0f32; whole * 32 * self.core_channels];
         for s in 0..whole {
             let mut x: Vec<[Cplx; 64]> = vec![[Cplx::ZERO; 64]; n];
-            for ((bank, pending), out) in self.analysis.iter_mut().zip(&self.pending).zip(x.iter_mut()) {
+            for ((bank, pending), out) in self
+                .analysis
+                .iter_mut()
+                .zip(&self.pending)
+                .zip(x.iter_mut())
+            {
                 bank.process(&pending[64 * s..64 * (s + 1)], out);
             }
             let rows: Vec<[Cplx; 64]> = if self.ps {
@@ -238,7 +262,11 @@ impl HeFrontEnd {
             pr[k] = 0.6 * pr[k] + 0.4 * r[k].norm_sqr();
             ps[k] = 0.6 * ps[k] + 0.4 * sum.norm_sqr();
             let target = 0.5 * (pl[k] + pr[k]);
-            let g = if ps[k] > 1e-9 { (target / ps[k]).sqrt().min(2.0) } else { 1.0 };
+            let g = if ps[k] > 1e-9 {
+                (target / ps[k]).sqrt().min(2.0)
+            } else {
+                1.0
+            };
             m[k] = sum.scale(g);
         }
         m
@@ -251,7 +279,10 @@ impl HeFrontEnd {
         if i < 0 {
             return [Cplx::ZERO; 64];
         }
-        self.slots[c].get(i as usize).copied().unwrap_or([Cplx::ZERO; 64])
+        self.slots[c]
+            .get(i as usize)
+            .copied()
+            .unwrap_or([Cplx::ZERO; 64])
     }
 
     fn ps_slot(&self, side: usize, j: i64) -> [Cplx; 64] {
@@ -259,7 +290,10 @@ impl HeFrontEnd {
         if i < 0 {
             return [Cplx::ZERO; 64];
         }
-        self.ps_slots[side].get(i as usize).copied().unwrap_or([Cplx::ZERO; 64])
+        self.ps_slots[side]
+            .get(i as usize)
+            .copied()
+            .unwrap_or([Cplx::ZERO; 64])
     }
 
     /// Whether frame `k`'s SBR data can be made yet.
@@ -279,10 +313,18 @@ impl HeFrontEnd {
             let rows: Vec<Vec<[Cplx; 64]>> = el
                 .channels
                 .iter()
-                .map(|&c| (s0 - LOOKAHEAD..s0 + 32 + LOOKAHEAD).map(|j| self.slot(c, j)).collect())
+                .map(|&c| {
+                    (s0 - LOOKAHEAD..s0 + 32 + LOOKAHEAD)
+                        .map(|j| self.slot(c, j))
+                        .collect()
+                })
                 .collect();
             let ps_rows = el.ps.as_ref().map(|_| {
-                [0, 1].map(|side| (s0..s0 + 32).map(|j| self.ps_slot(side, j)).collect::<Vec<_>>())
+                [0, 1].map(|side| {
+                    (s0..s0 + 32)
+                        .map(|j| self.ps_slot(side, j))
+                        .collect::<Vec<_>>()
+                })
             });
             let el = &mut self.elements[e];
             out.push(el.encode(&rows, ps_rows.as_ref(), header));
@@ -373,7 +415,12 @@ impl SbrElement {
     /// One frame of this element: `rows[ch]` the channel's slots from 8
     /// before the frame to 8 after (48), `ps` the left and right slots of
     /// the frame for a PS element.
-    fn encode(&mut self, rows: &[Vec<[Cplx; 64]>], ps: Option<&[Vec<[Cplx; 64]>; 2]>, with_header: bool) -> Bits {
+    fn encode(
+        &mut self,
+        rows: &[Vec<[Cplx; 64]>],
+        ps: Option<&[Vec<[Cplx; 64]>; 2]>,
+        with_header: bool,
+    ) -> Bits {
         let t = &self.tables;
         let (kx, m) = (t.kx, t.m);
         let la = LOOKAHEAD as usize;
@@ -406,7 +453,9 @@ impl SbrElement {
             let frame = &r[la..la + SLOTS];
             // Transient detection: the high band's energy per time slot
             // (two QMF slots) against the frame's lead-in.
-            let slot_energy: Vec<f64> = (0..20).map(|i| band_energy(&r[2 * i..2 * i + 2], kx, kx + m)).collect();
+            let slot_energy: Vec<f64> = (0..20)
+                .map(|i| band_energy(&r[2 * i..2 * i + 2], kx, kx + m))
+                .collect();
             let mut num_env = 1;
             for i in 4..20 {
                 let before = slot_energy[i - 4..i].iter().sum::<f64>() / 4.0;
@@ -462,7 +511,9 @@ impl SbrElement {
                 let (g_orig, g_src) = ((g_orig / n).exp(), (g_src / n).exp());
                 // Noise relative to the tonal part of the original.
                 let q = 1.0 / (g_orig - 1.0).max(1e-3);
-                let qq = (f64::from(NOISE_FLOOR_OFFSET) - q.log2()).round().clamp(0.0, 30.0) as i32;
+                let qq = (f64::from(NOISE_FLOOR_OFFSET) - q.log2())
+                    .round()
+                    .clamp(0.0, 30.0) as i32;
                 q_band.push(qq);
                 let ratio_db = 10.0 * (g_src / g_orig).log10();
                 invf.push(match ratio_db {
@@ -474,7 +525,14 @@ impl SbrElement {
             }
             let num_noise = if num_env > 1 { 2 } else { 1 };
             let _ = ch;
-            chans.push(Chan { num_env, high, amp_res, env, noise: vec![q_band; num_noise], invf });
+            chans.push(Chan {
+                num_env,
+                high,
+                amp_res,
+                env,
+                noise: vec![q_band; num_noise],
+                invf,
+            });
         }
 
         let mut data = Bits::default();
@@ -575,14 +633,22 @@ fn write_grid(w: &mut Bits, num_env: usize, high: bool) {
 /// previous envelope when that is shorter and allowed), clamping steps to
 /// the tables: the direction flags and the coded bits. Updates `prev` to
 /// the values the decoder will have.
-fn code_envelopes(t: &FreqTables, env: &[Vec<i32>], high: bool, amp_res: u8, prev: &mut ChannelPrev, reset: bool) -> (Vec<bool>, Bits) {
+fn code_envelopes(
+    t: &FreqTables,
+    env: &[Vec<i32>],
+    high: bool,
+    amp_res: u8,
+    prev: &mut ChannelPrev,
+    reset: bool,
+) -> (Vec<bool>, Bits) {
     let (t_huff, f_huff) = SbrTable::envelope(amp_res == 1, false);
     let start_bits = if amp_res == 1 { 6 } else { 7 };
     let max_start = (1i32 << start_bits) - 1;
     let lav = if amp_res == 1 { 31 } else { 60 };
     let mut flags = Vec::new();
     let mut bits = Bits::default();
-    let mut last: Option<(Vec<i32>, bool)> = (!reset && !prev.e.is_empty()).then(|| (prev.e.clone(), prev.high));
+    let mut last: Option<(Vec<i32>, bool)> =
+        (!reset && !prev.e.is_empty()).then(|| (prev.e.clone(), prev.high));
     // The time-delta reference for a band: the previous envelope's value in
     // the matching band of its resolution (as the decoder maps it).
     let reference = |k: usize, p: &(Vec<i32>, bool)| -> i32 {
@@ -593,7 +659,11 @@ fn code_envelopes(t: &FreqTables, env: &[Vec<i32>], high: bool, amp_res: u8, pre
             t.table[1].iter().position(|&b| b == f).unwrap_or(0)
         } else {
             let f = t.table[1][k];
-            t.table[0].iter().rposition(|&b| b <= f).unwrap_or(0).min(t.n(false) - 1)
+            t.table[0]
+                .iter()
+                .rposition(|&b| b <= f)
+                .unwrap_or(0)
+                .min(t.n(false) - 1)
         };
         p.0.get(i).copied().unwrap_or(0)
     };
@@ -623,8 +693,14 @@ fn code_envelopes(t: &FreqTables, env: &[Vec<i32>], high: bool, amp_res: u8, pre
             }
             (vals, b)
         });
-        let use_t = t_try.as_ref().is_some_and(|(vals, b)| b.len() < f_bits.len() && vals.iter().all(|&v| v >= 0));
-        let (vals, b) = if use_t { t_try.unwrap() } else { (f_vals, f_bits) };
+        let use_t = t_try
+            .as_ref()
+            .is_some_and(|(vals, b)| b.len() < f_bits.len() && vals.iter().all(|&v| v >= 0));
+        let (vals, b) = if use_t {
+            t_try.unwrap()
+        } else {
+            (f_vals, f_bits)
+        };
         flags.push(use_t);
         bits.append(&b);
         last = Some((vals, high));
@@ -663,7 +739,13 @@ fn code_noise(noise: &[Vec<i32>], prev: &mut ChannelPrev, reset: bool) -> (Vec<b
         let use_t = t_try.as_ref().is_some_and(|b| b.len() < f_bits.len());
         if use_t {
             bits.append(t_try.as_ref().unwrap());
-            last = Some(values.iter().zip(last.as_ref().unwrap()).map(|(&v, &r)| r + (v - r).clamp(-31, 31)).collect());
+            last = Some(
+                values
+                    .iter()
+                    .zip(last.as_ref().unwrap())
+                    .map(|(&v, &r)| r + (v - r).clamp(-31, 31))
+                    .collect(),
+            );
         } else {
             bits.append(&f_bits);
             last = Some(f_vals);
@@ -723,11 +805,21 @@ impl PsEncoder {
             }
             let db = 10.0 * ((pl[b] + 1e-9) / (pr[b] + 1e-9)).log10();
             iid[b] = (0..15)
-                .min_by(|&i, &j| (pst::IID_COARSE_DB[i] - db).abs().total_cmp(&(pst::IID_COARSE_DB[j] - db).abs()))
+                .min_by(|&i, &j| {
+                    (pst::IID_COARSE_DB[i] - db)
+                        .abs()
+                        .total_cmp(&(pst::IID_COARSE_DB[j] - db).abs())
+                })
                 .unwrap() as i32
                 - 7;
             let rho = cr[b] / (pl[b] * pr[b]).sqrt().max(1e-9);
-            icc[b] = (0..8).min_by(|&i, &j| (pst::ICC[i] - rho).abs().total_cmp(&(pst::ICC[j] - rho).abs())).unwrap() as i32;
+            icc[b] = (0..8)
+                .min_by(|&i, &j| {
+                    (pst::ICC[i] - rho)
+                        .abs()
+                        .total_cmp(&(pst::ICC[j] - rho).abs())
+                })
+                .unwrap() as i32;
         }
         let mut w = Bits::default();
         let header = self.frames.is_multiple_of(8);
@@ -796,7 +888,9 @@ mod tests {
 
     #[test]
     fn prediction_gain_tells_tones_from_noise() {
-        let tone: Vec<Cplx> = (0..32).map(|n| Cplx::expi(0.7 * n as f64).scale(100.0)).collect();
+        let tone: Vec<Cplx> = (0..32)
+            .map(|n| Cplx::expi(0.7 * n as f64).scale(100.0))
+            .collect();
         let mut seed = 1u32;
         let noise: Vec<Cplx> = (0..32)
             .map(|_| {

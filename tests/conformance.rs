@@ -53,7 +53,10 @@ fn boxes(data: &[u8]) -> Vec<([u8; 4], &[u8])> {
         let size = u32::from_be_bytes(data[i..i + 4].try_into().unwrap()) as usize;
         let kind: [u8; 4] = data[i + 4..i + 8].try_into().unwrap();
         let (header, size) = match size {
-            1 => (16, u64::from_be_bytes(data[i + 8..i + 16].try_into().unwrap()) as usize),
+            1 => (
+                16,
+                u64::from_be_bytes(data[i + 8..i + 16].try_into().unwrap()) as usize,
+            ),
             0 => (8, data.len() - i),
             n => (8, n),
         };
@@ -67,7 +70,9 @@ fn boxes(data: &[u8]) -> Vec<([u8; 4], &[u8])> {
 }
 
 fn child<'a>(data: &'a [u8], path: &[&[u8; 4]]) -> Option<&'a [u8]> {
-    path.iter().try_fold(data, |d, want| boxes(d).into_iter().find(|(k, _)| k == *want).map(|b| b.1))
+    path.iter().try_fold(data, |d, want| {
+        boxes(d).into_iter().find(|(k, _)| k == *want).map(|b| b.1)
+    })
 }
 
 /// The first audio track's `stbl`.
@@ -131,12 +136,27 @@ fn mp4_packets(file: &[u8], stbl: &[u8]) -> Vec<Vec<u8>> {
     let be = |b: &[u8], i: usize| u32::from_be_bytes(b[i..i + 4].try_into().unwrap()) as usize;
     let stsz = child(stbl, &[b"stsz"]).expect("stsz");
     let (fixed, count) = (be(stsz, 4), be(stsz, 8));
-    let sizes: Vec<usize> = (0..count).map(|k| if fixed != 0 { fixed } else { be(stsz, 12 + 4 * k) }).collect();
+    let sizes: Vec<usize> = (0..count)
+        .map(|k| {
+            if fixed != 0 {
+                fixed
+            } else {
+                be(stsz, 12 + 4 * k)
+            }
+        })
+        .collect();
     let stsc = child(stbl, &[b"stsc"]).expect("stsc");
-    let runs: Vec<(usize, usize)> = (0..be(stsc, 4)).map(|k| (be(stsc, 8 + 12 * k), be(stsc, 12 + 12 * k))).collect();
-    let offsets: Vec<usize> = match boxes(stbl).into_iter().find(|(k, _)| k == b"stco" || k == b"co64") {
+    let runs: Vec<(usize, usize)> = (0..be(stsc, 4))
+        .map(|k| (be(stsc, 8 + 12 * k), be(stsc, 12 + 12 * k)))
+        .collect();
+    let offsets: Vec<usize> = match boxes(stbl)
+        .into_iter()
+        .find(|(k, _)| k == b"stco" || k == b"co64")
+    {
         Some((k, b)) if &k == b"stco" => (0..be(b, 4)).map(|c| be(b, 8 + 4 * c)).collect(),
-        Some((_, b)) => (0..be(b, 4)).map(|c| u64::from_be_bytes(b[8 + 8 * c..16 + 8 * c].try_into().unwrap()) as usize).collect(),
+        Some((_, b)) => (0..be(b, 4))
+            .map(|c| u64::from_be_bytes(b[8 + 8 * c..16 + 8 * c].try_into().unwrap()) as usize)
+            .collect(),
         None => panic!("no chunk offsets"),
     };
     let mut packets = Vec::with_capacity(count);
@@ -192,10 +212,14 @@ fn read_wav(path: &Path) -> (u32, usize, Vec<f64>) {
 fn decode(path: &Path) -> (u32, usize, Vec<f64>, bool) {
     let file = std::fs::read(path).unwrap();
     let stbl = audio_stbl(&file);
-    let mut dec = Decoder::new_raw(&esds_asc(stbl)).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let mut dec =
+        Decoder::new_raw(&esds_asc(stbl)).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let mut frames = Vec::new();
     for p in mp4_packets(&file, stbl) {
-        frames.extend(dec.decode(&p).unwrap_or_else(|e| panic!("{}: {e}", path.display())));
+        frames.extend(
+            dec.decode(&p)
+                .unwrap_or_else(|e| panic!("{}: {e}", path.display())),
+        );
     }
     // A mono stream whose PS data starts after its first access units (it
     // cannot be read before the first SBR header) turns stereo there: its
@@ -207,7 +231,12 @@ fn decode(path: &Path) -> (u32, usize, Vec<f64>, bool) {
         if f.channels == channels {
             out.extend(f.samples.iter().map(|&v| f64::from(v)));
         } else {
-            assert_eq!((f.channels, channels), (1, 2), "{}: channels change", path.display());
+            assert_eq!(
+                (f.channels, channels),
+                (1, 2),
+                "{}: channels change",
+                path.display()
+            );
             out.extend(f.samples.iter().flat_map(|&v| [f64::from(v); 2]));
         }
     }
@@ -215,7 +244,13 @@ fn decode(path: &Path) -> (u32, usize, Vec<f64>, bool) {
     if std::env::var("AAC_CONFORMANCE_VERBOSE").is_ok() {
         eprintln!("  {}: {t:?}", path.display());
     }
-    assert_eq!(t.sbr_errors, 0, "{}: {} SBR payloads did not parse", path.display(), t.sbr_errors);
+    assert_eq!(
+        t.sbr_errors,
+        0,
+        "{}: {} SBR payloads did not parse",
+        path.display(),
+        t.sbr_errors
+    );
     (rate, channels, out, t.noise_bands > 0)
 }
 
@@ -247,7 +282,11 @@ struct Outcome {
 
 /// Compare a decoded stream with reference channels (one interleaved file,
 /// or one file per channel).
-fn check(name: &str, ours: (u32, usize, Vec<f64>, bool), refs: &[(u32, usize, Vec<f64>)]) -> Outcome {
+fn check(
+    name: &str,
+    ours: (u32, usize, Vec<f64>, bool),
+    refs: &[(u32, usize, Vec<f64>)],
+) -> Outcome {
     let (rate, n, samples, pns) = ours;
     let mut reference: Vec<Vec<f64>> = Vec::new();
     for (r_rate, r_n, r) in refs {
@@ -262,13 +301,18 @@ fn check(name: &str, ours: (u32, usize, Vec<f64>, bool), refs: &[(u32, usize, Ve
     if clipped > 0 {
         eprintln!("  {name}: {clipped} samples beyond full scale, saturated as PCM");
     }
-    let samples: Vec<f64> = samples.iter().map(|v| v.clamp(-1.0, 1.0 - 1.0 / 8_388_608.0)).collect();
+    let samples: Vec<f64> = samples
+        .iter()
+        .map(|v| v.clamp(-1.0, 1.0 - 1.0 / 8_388_608.0))
+        .collect();
     // The AAC-LC references start two frames in: they leave out the first
     // 2048 samples a decoder outputs (the same offset for every AAC-LC
     // stream; with it the agreement is to a thousandth of a 16-bit LSB). The
     // SBR and PS references keep them.
     let skip = if is_aac_lc(name) { 2048 } else { 0 };
-    let ours: Vec<Vec<f64>> = (0..n).map(|c| channel(&samples, n, c).split_off(skip.min(samples.len() / n.max(1)))).collect();
+    let ours: Vec<Vec<f64>> = (0..n)
+        .map(|c| channel(&samples, n, c).split_off(skip.min(samples.len() / n.max(1))))
+        .collect();
     // Channels of a multichannel reference split in files are matched by
     // their best agreement.
     let (mut rms, mut max, mut pns_gap, mut pns_whole) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
@@ -294,10 +338,18 @@ fn check(name: &str, ours: (u32, usize, Vec<f64>, bool), refs: &[(u32, usize, Ve
         }
         if std::env::var("AAC_CONFORMANCE_VERBOSE").is_ok() {
             eprintln!("  {name}: reference channel matched by ours {j}: RMS {cr:.2e} max {cm:.2e}");
-            let bad: std::collections::BTreeSet<usize> =
-                r.iter().zip(&ours[j]).enumerate().filter(|(_, (a, b))| (*a - *b).abs() > 1.0 / 32768.0).map(|(i, _)| i / 2048).collect();
+            let bad: std::collections::BTreeSet<usize> = r
+                .iter()
+                .zip(&ours[j])
+                .enumerate()
+                .filter(|(_, (a, b))| (*a - *b).abs() > 1.0 / 32768.0)
+                .map(|(i, _)| i / 2048)
+                .collect();
             if !bad.is_empty() {
-                eprintln!("    blocks of 2048 with errors over 1 LSB: {:?}", bad.iter().take(40).collect::<Vec<_>>());
+                eprintln!(
+                    "    blocks of 2048 with errors over 1 LSB: {:?}",
+                    bad.iter().take(40).collect::<Vec<_>>()
+                );
             }
         }
         rms = rms.max(cr);
@@ -312,7 +364,13 @@ fn check(name: &str, ours: (u32, usize, Vec<f64>, bool), refs: &[(u32, usize, Ve
             pass: pns_gap < PNS_BLOCK_LIMIT_DB && pns_whole < PNS_WHOLE_LIMIT_DB,
         };
     }
-    Outcome { name: name.to_string(), rms, max, pns_gap: None, pass: rms < RMS_LIMIT && max <= MAX_LIMIT }
+    Outcome {
+        name: name.to_string(),
+        rms,
+        max,
+        pns_gap: None,
+        pass: rms < RMS_LIMIT && max <= MAX_LIMIT,
+    }
 }
 
 /// The largest difference (dB) between the energies of `ours` and
@@ -324,7 +382,9 @@ fn energy_gap_db(ours: &[f64], reference: &[f64]) -> (f64, f64) {
     let whole = (10.0 * (e(&ours[..n]) / e(&reference[..n])).log10()).abs();
     let mut worst = 0.0f64;
     for (k, r) in reference.as_chunks::<2048>().0.iter().enumerate() {
-        let Some(o) = ours.get(k * 2048..(k + 1) * 2048) else { break };
+        let Some(o) = ours.get(k * 2048..(k + 1) * 2048) else {
+            break;
+        };
         let e = |x: &[f64]| x.iter().map(|v| v * v).sum::<f64>() / x.len() as f64;
         let (eo, er) = (e(o), e(r));
         if er > 1e-6 {
@@ -336,7 +396,8 @@ fn energy_gap_db(ours: &[f64], reference: &[f64]) -> (f64, f64) {
 
 /// An AAC-LC conformance stream: `alNN_RR` (not `al_sbr_*`).
 fn is_aac_lc(stem: &str) -> bool {
-    stem.strip_prefix("al").is_some_and(|r| r.starts_with(|c: char| c.is_ascii_digit()))
+    stem.strip_prefix("al")
+        .is_some_and(|r| r.starts_with(|c: char| c.is_ascii_digit()))
 }
 
 /// The reference files of a stream: an AAC-LC `alNN_RR.mp4` has
@@ -405,7 +466,13 @@ fn conformance_streams_meet_the_16_bit_criterion() {
             Err(e) => {
                 let msg = e.downcast_ref::<String>().cloned().unwrap_or_default();
                 eprintln!("{stem:<34} {msg}");
-                outcomes.push(Outcome { name: stem, rms: f64::NAN, max: f64::NAN, pns_gap: None, pass: false });
+                outcomes.push(Outcome {
+                    name: stem,
+                    rms: f64::NAN,
+                    max: f64::NAN,
+                    pns_gap: None,
+                    pass: false,
+                });
                 continue;
             }
         };
@@ -429,8 +496,16 @@ fn conformance_streams_meet_the_16_bit_criterion() {
         );
         outcomes.push(o);
     }
-    let failed: Vec<&str> = outcomes.iter().filter(|o| !o.pass).map(|o| o.name.as_str()).collect();
-    eprintln!("{} of {} streams within the 16-bit criterion", outcomes.len() - failed.len(), outcomes.len());
+    let failed: Vec<&str> = outcomes
+        .iter()
+        .filter(|o| !o.pass)
+        .map(|o| o.name.as_str())
+        .collect();
+    eprintln!(
+        "{} of {} streams within the 16-bit criterion",
+        outcomes.len() - failed.len(),
+        outcomes.len()
+    );
     assert!(failed.is_empty(), "outside the criterion: {failed:?}");
 }
 
@@ -442,7 +517,10 @@ fn conformance_streams_meet_the_16_bit_criterion() {
 #[test]
 fn committed_he_aac_streams_decode_with_sbr_and_ps() {
     let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data");
-    let mut paths: Vec<PathBuf> = std::fs::read_dir(&data).unwrap().map(|e| e.unwrap().path()).collect();
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(&data)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
     paths.retain(|p| p.file_name().unwrap().to_string_lossy().starts_with("he-"));
     paths.sort();
     assert_eq!(paths.len(), 6);
@@ -452,7 +530,10 @@ fn committed_he_aac_streams_decode_with_sbr_and_ps() {
         let decode = |core_only: bool| {
             let (mut dec, units) = if name.ends_with(".m4a") {
                 let stbl = audio_stbl(&file);
-                (Decoder::new_raw(&esds_asc(stbl)).unwrap(), mp4_packets(&file, stbl))
+                (
+                    Decoder::new_raw(&esds_asc(stbl)).unwrap(),
+                    mp4_packets(&file, stbl),
+                )
             } else {
                 (Decoder::new_adts(), vec![file.clone()])
             };
@@ -464,7 +545,11 @@ fn committed_he_aac_streams_decode_with_sbr_and_ps() {
             assert_eq!(dec.tool_use().sbr_errors, 0, "{name}");
             let last = frames.last().unwrap();
             let (rate, n) = (last.sample_rate, last.channels);
-            let samples: Vec<f64> = frames.iter().filter(|f| f.channels == n).flat_map(|f| f.samples.iter().map(|&v| f64::from(v))).collect();
+            let samples: Vec<f64> = frames
+                .iter()
+                .filter(|f| f.channels == n)
+                .flat_map(|f| f.samples.iter().map(|&v| f64::from(v)))
+                .collect();
             (rate, n, samples, dec.he_aac())
         };
         let (rate, n, full, he) = decode(false);
@@ -486,11 +571,18 @@ fn committed_he_aac_streams_decode_with_sbr_and_ps() {
                     re += v * ph.cos();
                     im += v * ph.sin();
                 }
-                if k >= 128 { high += re * re + im * im } else { low += re * re + im * im }
+                if k >= 128 {
+                    high += re * re + im * im
+                } else {
+                    low += re * re + im * im
+                }
             }
         }
         let share_db = 10.0 * (high / low.max(1e-30)).log10();
-        eprintln!("{name:<38} {rate} Hz x{n} (core {core_rate} Hz x{core_n}): power above {} Hz {share_db:+.1} dB of the power below", rate / 4);
+        eprintln!(
+            "{name:<38} {rate} Hz x{n} (core {core_rate} Hz x{core_n}): power above {} Hz {share_db:+.1} dB of the power below",
+            rate / 4
+        );
         assert!(share_db > -45.0, "{name}: {share_db:.1} dB");
     }
 }

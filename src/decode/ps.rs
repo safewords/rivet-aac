@@ -50,7 +50,10 @@ pub(crate) struct PsData {
 pub(crate) fn parse(r: &mut BitReader, prev: &mut Option<PsHeader>) -> Result<Option<PsData>> {
     let mut d = PsData::default();
     if r.bit()? {
-        let mut h = PsHeader { enable_iid: r.bit()?, ..PsHeader::default() };
+        let mut h = PsHeader {
+            enable_iid: r.bit()?,
+            ..PsHeader::default()
+        };
         if h.enable_iid {
             h.iid_mode = r.read(3)? as u8;
         }
@@ -60,7 +63,9 @@ pub(crate) fn parse(r: &mut BitReader, prev: &mut Option<PsHeader>) -> Result<Op
         }
         h.enable_ext = r.bit()?;
         if h.iid_mode > 5 || h.icc_mode > 5 {
-            return Err(unsupported("a reserved parametric stereo iid_mode or icc_mode"));
+            return Err(unsupported(
+                "a reserved parametric stereo iid_mode or icc_mode",
+            ));
         }
         d.has_header = true;
         *prev = Some(h);
@@ -72,7 +77,9 @@ pub(crate) fn parse(r: &mut BitReader, prev: &mut Option<PsHeader>) -> Result<Op
     d.frame_class = r.bit()?;
     d.num_env = t::NUM_ENV[usize::from(d.frame_class)][r.read(2)? as usize];
     if d.frame_class {
-        d.border_position = (0..d.num_env).map(|_| Ok(r.read(5)? as usize)).collect::<Result<_>>()?;
+        d.border_position = (0..d.num_env)
+            .map(|_| Ok(r.read(5)? as usize))
+            .collect::<Result<_>>()?;
     }
     let nr_iid = t::NR_PAR[usize::from(h.iid_mode)];
     let nr_icc = t::NR_PAR[usize::from(h.icc_mode)];
@@ -98,7 +105,11 @@ pub(crate) fn parse(r: &mut BitReader, prev: &mut Option<PsHeader>) -> Result<Op
         for _ in 0..d.num_env {
             let dt = r.bit()?;
             d.icc_dt.push(dt);
-            d.icc.push(read(r, if dt { PsTable::IccDt } else { PsTable::IccDf }, nr_icc)?);
+            d.icc.push(read(
+                r,
+                if dt { PsTable::IccDt } else { PsTable::IccDf },
+                nr_icc,
+            )?);
         }
     }
     if h.enable_ext {
@@ -117,10 +128,18 @@ pub(crate) fn parse(r: &mut BitReader, prev: &mut Option<PsHeader>) -> Result<Op
                     for _ in 0..d.num_env {
                         let dt = r.bit()?;
                         d.ipd_dt.push(dt);
-                        d.ipd.push(read(r, if dt { PsTable::IpdDt } else { PsTable::IpdDf }, nr_ipdopd)?);
+                        d.ipd.push(read(
+                            r,
+                            if dt { PsTable::IpdDt } else { PsTable::IpdDf },
+                            nr_ipdopd,
+                        )?);
                         let dt = r.bit()?;
                         d.opd_dt.push(dt);
-                        d.opd.push(read(r, if dt { PsTable::OpdDt } else { PsTable::OpdDf }, nr_ipdopd)?);
+                        d.opd.push(read(
+                            r,
+                            if dt { PsTable::OpdDt } else { PsTable::OpdDf },
+                            nr_ipdopd,
+                        )?);
                     }
                 }
                 r.skip(1)?; // reserved_ps
@@ -136,10 +155,17 @@ pub(crate) fn parse(r: &mut BitReader, prev: &mut Option<PsHeader>) -> Result<Op
         r.skip(left)?;
     }
     if !d.frame_class {
-        d.border_position = (0..d.num_env).map(|e| SLOTS * (e + 1) / d.num_env - 1).collect();
+        d.border_position = (0..d.num_env)
+            .map(|e| SLOTS * (e + 1) / d.num_env - 1)
+            .collect();
     }
-    if d.border_position.windows(2).any(|w| w[1] <= w[0]) || d.border_position.iter().any(|&b| b >= SLOTS) {
-        return Err(invalid(format!("parametric stereo borders {:?}", d.border_position)));
+    if d.border_position.windows(2).any(|w| w[1] <= w[0])
+        || d.border_position.iter().any(|&b| b >= SLOTS)
+    {
+        return Err(invalid(format!(
+            "parametric stereo borders {:?}",
+            d.border_position
+        )));
     }
     Ok(Some(d))
 }
@@ -173,7 +199,11 @@ impl Config {
     }
     /// Hybrid band `k`'s parameter band and conjugation.
     fn band(self, k: usize) -> (usize, bool) {
-        if self.bands34 { t::band_34(k) } else { t::band_20(k) }
+        if self.bands34 {
+            t::band_34(k)
+        } else {
+            t::band_20(k)
+        }
     }
     /// The hybrid index of an unsplit QMF band.
     fn qmf_offset(self) -> usize {
@@ -229,7 +259,13 @@ impl HybridFilters {
                 .collect()
         };
         let filters = if cfg.bands34 {
-            vec![type_a(&t::G0_12, 12), type_a(&t::G1_8, 8), type_a(&t::G234_4, 4), type_a(&t::G234_4, 4), type_a(&t::G234_4, 4)]
+            vec![
+                type_a(&t::G0_12, 12),
+                type_a(&t::G1_8, 8),
+                type_a(&t::G234_4, 4),
+                type_a(&t::G234_4, 4),
+                type_a(&t::G234_4, 4),
+            ]
         } else {
             vec![type_a(&t::G0_8, 8), type_b(&t::G12_2), type_b(&t::G12_2)]
         };
@@ -299,7 +335,9 @@ impl Decorrelator {
     fn new(cfg: Config) -> Self {
         let n = cfg.nr_bands();
         Self {
-            allpass: (0..cfg.allpass_bands()).map(|k| AllPass::new(cfg, k)).collect(),
+            allpass: (0..cfg.allpass_bands())
+                .map(|k| AllPass::new(cfg, k))
+                .collect(),
             delay: (0..n)
                 .map(|k| {
                     let d = if k < cfg.allpass_bands() {
@@ -340,7 +378,11 @@ impl Decorrelator {
         let mut ratio = vec![1.0f32; nb];
         for i in 0..nb {
             let p = power[i];
-            self.peak[i] = if alpha * self.peak[i] < p { p } else { alpha * self.peak[i] };
+            self.peak[i] = if alpha * self.peak[i] < p {
+                p
+            } else {
+                alpha * self.peak[i]
+            };
             self.smooth_nrg[i] = 0.25 * p + 0.75 * self.smooth_nrg[i];
             self.smooth_diff[i] = 0.25 * (self.peak[i] - p) + 0.75 * self.smooth_diff[i];
             let gamma = 1.5f32;
@@ -416,7 +458,11 @@ impl Default for PsDecoder {
 fn undelta(delta: &[i32], dt: bool, prev: &[i32], modulo: Option<i32>) -> Vec<i32> {
     let wrap = |v: i32| modulo.map_or(v, |m| v.rem_euclid(m));
     if dt {
-        delta.iter().enumerate().map(|(b, &d)| wrap(prev.get(b).copied().unwrap_or(0) + d)).collect()
+        delta
+            .iter()
+            .enumerate()
+            .map(|(b, &d)| wrap(prev.get(b).copied().unwrap_or(0) + d))
+            .collect()
     } else {
         let mut acc = 0;
         delta
@@ -442,7 +488,10 @@ fn map_to(v: &[i32], bands34: bool, count: usize) -> Vec<i32> {
     if !bands34 || count == 34 {
         return to20;
     }
-    t::MAP_20_TO_34.iter().map(|&(a, b)| (to20[a] + to20[b]) / 2).collect()
+    t::MAP_20_TO_34
+        .iter()
+        .map(|&(a, b)| (to20[a] + to20[b]) / 2)
+        .collect()
 }
 
 impl PsDecoder {
@@ -463,7 +512,13 @@ impl PsDecoder {
             if d.has_header {
                 self.header = Some(d.header);
             }
-            let all_df = d.iid_dt.iter().chain(&d.icc_dt).chain(&d.ipd_dt).chain(&d.opd_dt).all(|&dt| !dt);
+            let all_df = d
+                .iid_dt
+                .iter()
+                .chain(&d.icc_dt)
+                .chain(&d.ipd_dt)
+                .chain(&d.opd_dt)
+                .all(|&dt| !dt);
             if !self.started && self.header.is_some() && d.num_env > 0 && all_df {
                 self.started = true;
             }
@@ -473,9 +528,19 @@ impl PsDecoder {
         if let Some(d) = data {
             let h = d.header;
             if h.enable_iid || h.enable_icc {
-                let n_iid = if h.enable_iid { t::NR_PAR[usize::from(h.iid_mode)] } else { 20 };
-                let n_icc = if h.enable_icc { t::NR_PAR[usize::from(h.icc_mode)] } else { 20 };
-                cfg = Config { bands34: n_iid == 34 || n_icc == 34 };
+                let n_iid = if h.enable_iid {
+                    t::NR_PAR[usize::from(h.iid_mode)]
+                } else {
+                    20
+                };
+                let n_icc = if h.enable_icc {
+                    t::NR_PAR[usize::from(h.icc_mode)]
+                } else {
+                    20
+                };
+                cfg = Config {
+                    bands34: n_iid == 34 || n_icc == 34,
+                };
             }
         }
         if cfg != self.cfg {
@@ -513,7 +578,8 @@ impl PsDecoder {
             self.decorrelator.clear_from(0);
         }
         if data.is_some() {
-            self.decorrelator.clear_from((kmax + cfg.qmf_offset()).min(cfg.nr_bands()));
+            self.decorrelator
+                .clear_from((kmax + cfg.qmf_offset()).min(cfg.nr_bands()));
         }
         self.prev_present = data.is_some();
 
@@ -568,7 +634,9 @@ impl PsDecoder {
 
         // The mixing matrices at each parameter position (8.6.4.6).
         let positions: Vec<(usize, Vec<H>)> = match data {
-            Some(d) if d.num_env > 0 => (0..d.num_env).map(|e| (d.border_position[e], self.envelope(d, e))).collect(),
+            Some(d) if d.num_env > 0 => (0..d.num_env)
+                .map(|e| (d.border_position[e], self.envelope(d, e)))
+                .collect(),
             _ => Vec::new(),
         };
         let start_h = self.h_last.clone();
@@ -581,15 +649,25 @@ impl PsDecoder {
             // the conformance references (ISO/IEC 14496-26) have (n + 1) /
             // (n0 + 1), the general formula with n_-1 = -1, and so does
             // this decoder.
-            let (h_a, n_a, h_b, n_b): (&[H], isize, &[H], isize) = match positions.iter().position(|p| p.0 >= l) {
-                Some(0) => (&start_h, -1, &positions[0].1, positions[0].0 as isize),
-                Some(e) => (&positions[e - 1].1, positions[e - 1].0 as isize, &positions[e].1, positions[e].0 as isize),
-                None => {
-                    let h: &[H] = positions.last().map_or(&start_h[..], |p| &p.1[..]);
-                    (h, 0, h, 0)
-                }
+            let (h_a, n_a, h_b, n_b): (&[H], isize, &[H], isize) =
+                match positions.iter().position(|p| p.0 >= l) {
+                    Some(0) => (&start_h, -1, &positions[0].1, positions[0].0 as isize),
+                    Some(e) => (
+                        &positions[e - 1].1,
+                        positions[e - 1].0 as isize,
+                        &positions[e].1,
+                        positions[e].0 as isize,
+                    ),
+                    None => {
+                        let h: &[H] = positions.last().map_or(&start_h[..], |p| &p.1[..]);
+                        (h, 0, h, 0)
+                    }
+                };
+            let w = if n_b == n_a {
+                1.0
+            } else {
+                (l as isize - n_a) as f32 / (n_b - n_a) as f32
             };
-            let w = if n_b == n_a { 1.0 } else { (l as isize - n_a) as f32 / (n_b - n_a) as f32 };
             let mut lrow = [Cplx::ZERO; 91];
             let mut rrow = [Cplx::ZERO; 91];
             for k in 0..nb {
@@ -654,7 +732,11 @@ impl PsDecoder {
             full[..v.len().min(nr_iid)].copy_from_slice(&v[..v.len().min(nr_iid)]);
             let mapped = map_to(&full, cfg.bands34, nr_iid);
             let valid = if cfg.bands34 { 17 } else { 11 };
-            mapped.iter().enumerate().map(|(b, &x)| if b < valid { x } else { 0 }).collect()
+            mapped
+                .iter()
+                .enumerate()
+                .map(|(b, &x)| if b < valid { x } else { 0 })
+                .collect()
         };
         let (ipd, opd) = (phase_grid(&ipd), phase_grid(&opd));
         let fine = h.iid_mode >= 3;
@@ -681,7 +763,11 @@ impl PsDecoder {
                 )
             } else {
                 let rho = rho.max(0.05);
-                let mut alpha = if c != 1.0 { 0.5 * (2.0 * c * rho / (c * c - 1.0)).atan() } else { PI / 4.0 };
+                let mut alpha = if c != 1.0 {
+                    0.5 * (2.0 * c * rho / (c * c - 1.0)).atan()
+                } else {
+                    PI / 4.0
+                };
                 alpha -= (alpha / (PI / 2.0)).floor() * (PI / 2.0);
                 let mu = 1.0 + (4.0 * rho * rho - 4.0) / (c + 1.0 / c).powi(2);
                 let gamma = ((1.0 - mu.sqrt()) / (1.0 + mu.sqrt())).sqrt().atan();
@@ -750,7 +836,10 @@ fn hybrid_index(cfg: Config, q: usize, sub: usize) -> usize {
 fn hybrid_synthesis(cfg: Config, hyb: &[Cplx], out: &mut [Cplx; 64]) {
     *out = [Cplx::ZERO; 64];
     if cfg.bands34 {
-        for (q, (from, to)) in [(0, 12), (12, 20), (20, 24), (24, 28), (28, 32)].into_iter().enumerate() {
+        for (q, (from, to)) in [(0, 12), (12, 20), (20, 24), (24, 28), (28, 32)]
+            .into_iter()
+            .enumerate()
+        {
             out[q] = hyb[from..to].iter().fold(Cplx::ZERO, |a, &b| a + b);
         }
         out[5..64].copy_from_slice(&hyb[32..91]);
@@ -786,7 +875,8 @@ mod tests {
                             let mut row = [Cplx::ZERO; 64];
                             for (k, v) in row.iter_mut().enumerate() {
                                 let n = (f * SLOTS + l) as f64;
-                                *v = Cplx::expi(0.3 * n * (k as f64 + 1.0) + k as f64).scale(1.0 + k as f32);
+                                *v = Cplx::expi(0.3 * n * (k as f64 + 1.0) + k as f64)
+                                    .scale(1.0 + k as f32);
                             }
                             row
                         })
@@ -804,7 +894,12 @@ mod tests {
                 for slot in 0..SLOTS {
                     for k in 0..64 {
                         let e = (l[slot][k] - x[slot][k]).norm_sqr();
-                        assert!(e < 1e-8 * (1.0 + x[slot][k].norm_sqr()), "34 {bands34} slot {slot} band {k}: {:?} {:?}", l[slot][k], x[slot][k]);
+                        assert!(
+                            e < 1e-8 * (1.0 + x[slot][k].norm_sqr()),
+                            "34 {bands34} slot {slot} band {k}: {:?} {:?}",
+                            l[slot][k],
+                            x[slot][k]
+                        );
                     }
                 }
             }
@@ -815,7 +910,13 @@ mod tests {
     fn mixing_ra_preserves_power_and_follows_iid() {
         // ICC 1 (index 0): h21 = h22 = 0 and h11^2 + h12^2 = 2.
         let mut ps = PsDecoder::default();
-        let header = PsHeader { enable_iid: true, iid_mode: 1, enable_icc: true, icc_mode: 1, enable_ext: false };
+        let header = PsHeader {
+            enable_iid: true,
+            iid_mode: 1,
+            enable_icc: true,
+            icc_mode: 1,
+            enable_ext: false,
+        };
         let d = PsData {
             has_header: true,
             header,
@@ -836,7 +937,10 @@ mod tests {
         let h = ps.envelope(&d, 0);
         let (h11, h12) = (h[0][0].re, h[0][1].re);
         assert!((h11 * h11 + h12 * h12 - 2.0).abs() < 1e-5);
-        assert!((20.0 * (h11 / h12).log10() - 10.0).abs() < 1e-3, "{h11} {h12}");
+        assert!(
+            (20.0 * (h11 / h12).log10() - 10.0).abs() < 1e-3,
+            "{h11} {h12}"
+        );
         assert!(h[0][2].norm_sqr() < 1e-12 && h[0][3].norm_sqr() < 1e-12);
         // Band 1 is centred: equal gains of 1.
         assert!((h[1][0].re - 1.0).abs() < 1e-6 && (h[1][1].re - 1.0).abs() < 1e-6);
