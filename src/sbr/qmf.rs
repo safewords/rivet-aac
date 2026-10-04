@@ -8,6 +8,7 @@ use std::f64::consts::PI;
 use std::sync::OnceLock;
 
 use super::Cplx;
+use crate::simd;
 use crate::tables::sbr::QMF_WINDOW;
 
 /// The window `c` as `f32`.
@@ -16,31 +17,38 @@ fn window() -> &'static [f32; 640] {
     W.get_or_init(|| QMF_WINDOW.map(|c| c as f32))
 }
 
-/// A modulation matrix stored as `(cos, sin)` rows: `rows` outputs of
-/// `cols` inputs each, `phase(row, col)` radians.
+/// A modulation matrix of `rows` outputs by `cols` inputs, entry
+/// `scale · e^(i phase(row, col))`, stored as `(cos, sin)` by column (all
+/// the outputs' coefficients of one input together).
 struct Matrix {
-    cols: usize,
+    rows: usize,
     re: Vec<f32>,
     im: Vec<f32>,
 }
 
 impl Matrix {
     fn new(rows: usize, cols: usize, scale: f64, phase: impl Fn(usize, usize) -> f64) -> Self {
-        let mut re = Vec::with_capacity(rows * cols);
-        let mut im = Vec::with_capacity(rows * cols);
+        let mut re = vec![0.0; rows * cols];
+        let mut im = vec![0.0; rows * cols];
         for r in 0..rows {
             for c in 0..cols {
                 let p = phase(r, c);
-                re.push((scale * p.cos()) as f32);
-                im.push((scale * p.sin()) as f32);
+                re[c * rows + r] = (scale * p.cos()) as f32;
+                im[c * rows + r] = (scale * p.sin()) as f32;
             }
         }
-        Self { cols, re, im }
+        Self { rows, re, im }
     }
 
-    fn row(&self, r: usize) -> (&[f32], &[f32]) {
-        let at = r * self.cols;
-        (&self.re[at..at + self.cols], &self.im[at..at + self.cols])
+    /// The coefficients of input `c` for every output.
+    fn col(&self, c: usize) -> (&[f32], &[f32]) {
+        let at = c * self.rows;
+        (&self.re[at..at + self.rows], &self.im[at..at + self.rows])
+    }
+
+    #[cfg(test)]
+    fn at(&self, r: usize, c: usize) -> (f32, f32) {
+        (self.re[c * self.rows + r], self.im[c * self.rows + r])
     }
 }
 
@@ -84,35 +92,54 @@ impl Default for Analysis32 {
     }
 }
 
+/// The window's even taps, `c[2i]`, which the 32-band banks read.
+fn window_even() -> &'static [f32; 320] {
+    static W: OnceLock<[f32; 320]> = OnceLock::new();
+    W.get_or_init(|| std::array::from_fn(|i| window()[2 * i]))
+}
+
+// The banks below are the flowcharts' sums, each output's terms added in
+// the flowchart's order, but computed for all outputs at once (a loop over
+// the inputs outside, over the outputs inside): every output is the same
+// sum as before, bit for bit, and the inner loops vectorise across outputs.
+// `simd::avx2_or_portable!` also compiles them for AVX2 and picks that copy
+// at run time on x86-64.
+
+simd::avx2_or_portable! {
+    fn analysis32(x: &[f32; 320], out: &mut [Cplx]) {
+        let c = window_even();
+        let mut u = [0.0f32; 64];
+        for j in 0..5 {
+            let (xs, cs) = (&x[64 * j..64 * j + 64], &c[64 * j..64 * j + 64]);
+            for n in 0..64 {
+                u[n] += xs[n] * cs[n];
+            }
+        }
+        let m = analysis32_matrix();
+        let (mut a, mut b) = ([0.0f32; 32], [0.0f32; 32]);
+        for (n, &un) in u.iter().enumerate() {
+            let (re, im) = m.col(n);
+            for k in 0..32 {
+                a[k] += un * re[k];
+                b[k] += un * im[k];
+            }
+        }
+        for (k, o) in out.iter_mut().enumerate().take(32) {
+            *o = Cplx::new(a[k], b[k]);
+        }
+    }
+}
+
 impl Analysis32 {
     /// Filter 32 new input samples (oldest first) into one slot of 32
     /// subband samples.
     pub fn process(&mut self, input: &[f32], out: &mut [Cplx]) {
         debug_assert_eq!(input.len(), 32);
-        let c = window();
         self.x.copy_within(0..288, 32);
         for (n, &s) in input.iter().enumerate() {
             self.x[31 - n] = s;
         }
-        let mut u = [0.0f32; 64];
-        for (n, un) in u.iter_mut().enumerate() {
-            let mut acc = 0.0;
-            for j in 0..5 {
-                let i = n + 64 * j;
-                acc += self.x[i] * c[2 * i];
-            }
-            *un = acc;
-        }
-        let m = analysis32_matrix();
-        for (k, o) in out.iter_mut().enumerate().take(32) {
-            let (re, im) = m.row(k);
-            let (mut a, mut b) = (0.0f32, 0.0f32);
-            for n in 0..64 {
-                a += u[n] * re[n];
-                b += u[n] * im[n];
-            }
-            *o = Cplx::new(a, b);
-        }
+        analysis32(&self.x, out);
     }
 }
 
@@ -128,29 +155,37 @@ impl Default for Synthesis64 {
     }
 }
 
+simd::avx2_or_portable! {
+    fn synthesis64(v: &mut [f32], x: &[Cplx], out: &mut [f32]) {
+        let m = synthesis64_matrix();
+        let vn = &mut v[..128];
+        vn.fill(0.0);
+        for (k, xk) in x.iter().enumerate().take(64) {
+            let (re, im) = m.col(k);
+            for n in 0..128 {
+                vn[n] += xk.re * re[n] - xk.im * im[n];
+            }
+        }
+        let c = window();
+        let o = &mut out[..64];
+        o.fill(0.0);
+        for n in 0..5 {
+            let (v0, v1) = (&v[256 * n..256 * n + 64], &v[256 * n + 192..256 * n + 256]);
+            let (c0, c1) = (&c[128 * n..128 * n + 64], &c[128 * n + 64..128 * n + 128]);
+            for k in 0..64 {
+                o[k] += v0[k] * c0[k];
+                o[k] += v1[k] * c1[k];
+            }
+        }
+    }
+}
+
 impl Synthesis64 {
     /// One slot of 64 subband samples into 64 output samples.
     pub fn process(&mut self, x: &[Cplx], out: &mut [f32]) {
         debug_assert!(x.len() >= 64 && out.len() >= 64);
         self.v.copy_within(0..1152, 128);
-        let m = synthesis64_matrix();
-        for n in 0..128 {
-            let (re, im) = m.row(n);
-            let mut acc = 0.0f32;
-            for k in 0..64 {
-                acc += x[k].re * re[k] - x[k].im * im[k];
-            }
-            self.v[n] = acc;
-        }
-        let c = window();
-        for (k, o) in out.iter_mut().enumerate().take(64) {
-            let mut acc = 0.0f32;
-            for n in 0..5 {
-                acc += self.v[256 * n + k] * c[128 * n + k];
-                acc += self.v[256 * n + 192 + k] * c[128 * n + 64 + k];
-            }
-            *o = acc;
-        }
+        synthesis64(&mut self.v, x, out);
     }
 }
 
@@ -166,29 +201,37 @@ impl Default for Synthesis32 {
     }
 }
 
+simd::avx2_or_portable! {
+    fn synthesis32(v: &mut [f32; 640], x: &[Cplx], out: &mut [f32]) {
+        let m = synthesis32_matrix();
+        let vn = &mut v[..64];
+        vn.fill(0.0);
+        for (k, xk) in x.iter().enumerate().take(32) {
+            let (re, im) = m.col(k);
+            for n in 0..64 {
+                vn[n] += xk.re * re[n] - xk.im * im[n];
+            }
+        }
+        let c = window_even();
+        let o = &mut out[..32];
+        o.fill(0.0);
+        for n in 0..5 {
+            let (v0, v1) = (&v[128 * n..128 * n + 32], &v[128 * n + 96..128 * n + 128]);
+            let (c0, c1) = (&c[64 * n..64 * n + 32], &c[64 * n + 32..64 * n + 64]);
+            for k in 0..32 {
+                o[k] += v0[k] * c0[k];
+                o[k] += v1[k] * c1[k];
+            }
+        }
+    }
+}
+
 impl Synthesis32 {
     /// One slot of the lowest 32 subband samples into 32 output samples.
     pub fn process(&mut self, x: &[Cplx], out: &mut [f32]) {
         debug_assert!(x.len() >= 32 && out.len() >= 32);
         self.v.copy_within(0..576, 64);
-        let m = synthesis32_matrix();
-        for n in 0..64 {
-            let (re, im) = m.row(n);
-            let mut acc = 0.0f32;
-            for k in 0..32 {
-                acc += x[k].re * re[k] - x[k].im * im[k];
-            }
-            self.v[n] = acc;
-        }
-        let c = window();
-        for (k, o) in out.iter_mut().enumerate().take(32) {
-            let mut acc = 0.0f32;
-            for n in 0..5 {
-                acc += self.v[128 * n + k] * c[2 * (64 * n + k)];
-                acc += self.v[128 * n + 96 + k] * c[2 * (64 * n + 32 + k)];
-            }
-            *o = acc;
-        }
+        synthesis32(&mut self.v, x, out);
     }
 }
 
@@ -204,41 +247,189 @@ impl Default for Analysis64 {
     }
 }
 
+simd::avx2_or_portable! {
+    fn analysis64(x: &[f32], out: &mut [Cplx]) {
+        let c = window();
+        let mut u = [0.0f32; 128];
+        for j in 0..5 {
+            let (xs, cs) = (&x[128 * j..128 * j + 128], &c[128 * j..128 * j + 128]);
+            for n in 0..128 {
+                u[n] += xs[n] * cs[n];
+            }
+        }
+        let m = analysis64_matrix();
+        let (mut a, mut b) = ([0.0f32; 64], [0.0f32; 64]);
+        for (n, &un) in u.iter().enumerate() {
+            let (re, im) = m.col(n);
+            for k in 0..64 {
+                a[k] += un * re[k];
+                b[k] += un * im[k];
+            }
+        }
+        for (k, o) in out.iter_mut().enumerate().take(64) {
+            *o = Cplx::new(a[k], b[k]);
+        }
+    }
+}
+
 impl Analysis64 {
     /// Filter 64 new input samples (oldest first) into one slot of 64
     /// subband samples.
     pub fn process(&mut self, input: &[f32], out: &mut [Cplx]) {
         debug_assert_eq!(input.len(), 64);
-        let c = window();
         self.x.copy_within(0..576, 64);
         for (n, &s) in input.iter().enumerate() {
             self.x[63 - n] = s;
         }
-        let mut u = [0.0f32; 128];
-        for (n, un) in u.iter_mut().enumerate() {
-            let mut acc = 0.0;
-            for j in 0..5 {
-                let i = n + 128 * j;
-                acc += self.x[i] * c[i];
-            }
-            *un = acc;
-        }
-        let m = analysis64_matrix();
-        for (k, o) in out.iter_mut().enumerate().take(64) {
-            let (re, im) = m.row(k);
-            let (mut a, mut b) = (0.0f32, 0.0f32);
-            for n in 0..128 {
-                a += u[n] * re[n];
-                b += u[n] * im[n];
-            }
-            *o = Cplx::new(a, b);
-        }
+        analysis64(&self.x, out);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The banks as first written (one output's sum at a time, the matrix
+    /// read by rows): the vectorised banks must equal them bit for bit.
+    mod literal {
+        use super::super::*;
+
+        pub fn analysis32(x: &[f32; 320], out: &mut [Cplx]) {
+            let c = window();
+            let mut u = [0.0f32; 64];
+            for (n, un) in u.iter_mut().enumerate() {
+                let mut acc = 0.0;
+                for j in 0..5 {
+                    let i = n + 64 * j;
+                    acc += x[i] * c[2 * i];
+                }
+                *un = acc;
+            }
+            let m = analysis32_matrix();
+            for (k, o) in out.iter_mut().enumerate().take(32) {
+                let (mut a, mut b) = (0.0f32, 0.0f32);
+                for n in 0..64 {
+                    let (re, im) = m.at(k, n);
+                    a += u[n] * re;
+                    b += u[n] * im;
+                }
+                *o = Cplx::new(a, b);
+            }
+        }
+
+        pub fn synthesis64(v: &mut [f32], x: &[Cplx], out: &mut [f32]) {
+            let m = synthesis64_matrix();
+            for n in 0..128 {
+                let mut acc = 0.0f32;
+                for k in 0..64 {
+                    let (re, im) = m.at(n, k);
+                    acc += x[k].re * re - x[k].im * im;
+                }
+                v[n] = acc;
+            }
+            let c = window();
+            for (k, o) in out.iter_mut().enumerate().take(64) {
+                let mut acc = 0.0f32;
+                for n in 0..5 {
+                    acc += v[256 * n + k] * c[128 * n + k];
+                    acc += v[256 * n + 192 + k] * c[128 * n + 64 + k];
+                }
+                *o = acc;
+            }
+        }
+
+        pub fn synthesis32(v: &mut [f32; 640], x: &[Cplx], out: &mut [f32]) {
+            let m = synthesis32_matrix();
+            for n in 0..64 {
+                let mut acc = 0.0f32;
+                for k in 0..32 {
+                    let (re, im) = m.at(n, k);
+                    acc += x[k].re * re - x[k].im * im;
+                }
+                v[n] = acc;
+            }
+            let c = window();
+            for (k, o) in out.iter_mut().enumerate().take(32) {
+                let mut acc = 0.0f32;
+                for n in 0..5 {
+                    acc += v[128 * n + k] * c[2 * (64 * n + k)];
+                    acc += v[128 * n + 96 + k] * c[2 * (64 * n + 32 + k)];
+                }
+                *o = acc;
+            }
+        }
+
+        pub fn analysis64(x: &[f32], out: &mut [Cplx]) {
+            let c = window();
+            let mut u = [0.0f32; 128];
+            for (n, un) in u.iter_mut().enumerate() {
+                let mut acc = 0.0;
+                for j in 0..5 {
+                    let i = n + 128 * j;
+                    acc += x[i] * c[i];
+                }
+                *un = acc;
+            }
+            let m = analysis64_matrix();
+            for (k, o) in out.iter_mut().enumerate().take(64) {
+                let (mut a, mut b) = (0.0f32, 0.0f32);
+                for n in 0..128 {
+                    let (re, im) = m.at(k, n);
+                    a += u[n] * re;
+                    b += u[n] * im;
+                }
+                *o = Cplx::new(a, b);
+            }
+        }
+    }
+
+    fn noise(len: usize, seed: u32, scale: f32) -> Vec<f32> {
+        let mut s = seed;
+        (0..len)
+            .map(|_| {
+                s = s.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                ((s >> 8) as f32 / (1u32 << 24) as f32 - 0.5) * scale
+            })
+            .collect()
+    }
+
+    /// Each vectorised bank equals its literal form bit for bit, on random
+    /// state and input at several scales (and on zeros).
+    #[test]
+    fn banks_match_their_literal_form_bit_for_bit() {
+        let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+        let cbits = |v: &[Cplx]| v.iter().flat_map(|c| [c.re.to_bits(), c.im.to_bits()]).collect::<Vec<_>>();
+        for (seed, scale) in [(1u32, 1.0f32), (2, 32768.0), (3, 1e-30), (4, 0.0), (5, 3e30)] {
+            let x: [f32; 320] = noise(320, seed, scale).try_into().unwrap();
+            let (mut a, mut b) = ([Cplx::ZERO; 32], [Cplx::ZERO; 32]);
+            analysis32(&x, &mut a);
+            literal::analysis32(&x, &mut b);
+            assert_eq!(cbits(&a), cbits(&b), "analysis32 seed {seed}");
+
+            let x64 = noise(640, seed + 10, scale);
+            let (mut a, mut b) = ([Cplx::ZERO; 64], [Cplx::ZERO; 64]);
+            analysis64(&x64, &mut a);
+            literal::analysis64(&x64, &mut b);
+            assert_eq!(cbits(&a), cbits(&b), "analysis64 seed {seed}");
+
+            let sub: Vec<Cplx> = noise(128, seed + 20, scale).chunks(2).map(|c| Cplx::new(c[0], c[1])).collect();
+            let mut v1 = noise(1280, seed + 30, scale);
+            let mut v2 = v1.clone();
+            let (mut o1, mut o2) = ([0.0f32; 64], [0.0f32; 64]);
+            synthesis64(&mut v1, &sub, &mut o1);
+            literal::synthesis64(&mut v2, &sub, &mut o2);
+            assert_eq!(bits(&v1), bits(&v2), "synthesis64 state seed {seed}");
+            assert_eq!(bits(&o1), bits(&o2), "synthesis64 seed {seed}");
+
+            let mut w1: [f32; 640] = noise(640, seed + 40, scale).try_into().unwrap();
+            let mut w2 = w1;
+            let (mut o1, mut o2) = ([0.0f32; 32], [0.0f32; 32]);
+            synthesis32(&mut w1, &sub, &mut o1);
+            literal::synthesis32(&mut w2, &sub, &mut o2);
+            assert_eq!(bits(&w1), bits(&w2), "synthesis32 state seed {seed}");
+            assert_eq!(bits(&o1), bits(&o2), "synthesis32 seed {seed}");
+        }
+    }
 
     fn snr(reference: &[f64], got: &[f64]) -> f64 {
         let s: f64 = reference.iter().map(|v| v * v).sum();

@@ -47,6 +47,7 @@ fn escape_bits(v: i32) -> u32 {
     2 * n + 5
 }
 
+#[cfg(test)]
 fn tuple_bits(cb: u8, vals: &[i32]) -> u32 {
     let (unsigned, _, _) = CODEBOOK[usize::from(cb)];
     let mut bits = u32::from(SPECTRUM[usize::from(cb)][tuple_index(cb, vals)].0);
@@ -66,11 +67,46 @@ fn tuple_bits(cb: u8, vals: &[i32]) -> u32 {
 /// Bits to code the quantized values `q` (a whole scalefactor band) with
 /// codebook `cb`, which must cover them.
 pub(super) fn band_bits(cb: u8, q: &[i32]) -> u32 {
-    if cb == 0 {
-        return 0;
+    // The same sum as tuple by tuple through `tuple_bits`, with each
+    // codebook's dimension, signedness and modulus known to the compiler.
+    let table = SPECTRUM[usize::from(cb)];
+    match cb {
+        0 => 0,
+        1 | 2 => signed_bits::<4, 3>(table, q),
+        3 | 4 => unsigned_bits::<4, 3, false>(table, q),
+        5 | 6 => signed_bits::<2, 9>(table, q),
+        7 | 8 => unsigned_bits::<2, 8, false>(table, q),
+        9 | 10 => unsigned_bits::<2, 13, false>(table, q),
+        _ => unsigned_bits::<2, 17, true>(table, q),
     }
-    let dim = CODEBOOK[usize::from(cb)].1;
-    q.chunks_exact(dim).map(|t| tuple_bits(cb, t)).sum()
+}
+
+/// [`band_bits`] for a signed codebook of `DIM`-tuples and modulus `M`
+/// (values offset by `M / 2`).
+#[inline(always)]
+fn signed_bits<const DIM: usize, const M: i32>(table: &[(u8, u32)], q: &[i32]) -> u32 {
+    let (tuples, _) = q.as_chunks::<DIM>();
+    tuples.iter().map(|t| u32::from(table[t.iter().fold(0, |idx, &v| idx * M + v + M / 2) as usize].0)).sum()
+}
+
+/// [`band_bits`] for an unsigned codebook of `DIM`-tuples and modulus `M`:
+/// magnitudes (16 flags an escape when `ESC`), a sign bit per non-zero
+/// value, and the escape sequences.
+#[inline(always)]
+fn unsigned_bits<const DIM: usize, const M: i32, const ESC: bool>(table: &[(u8, u32)], q: &[i32]) -> u32 {
+    let (tuples, _) = q.as_chunks::<DIM>();
+    let mut bits = 0;
+    for t in tuples {
+        let idx = t.iter().fold(0, |idx, &v| idx * M + v.abs().min(16));
+        bits += u32::from(table[idx as usize].0);
+        for &v in t {
+            bits += u32::from(v != 0);
+            if ESC && v.abs() >= 16 {
+                bits += escape_bits(v.abs());
+            }
+        }
+    }
+    bits
 }
 
 pub(super) fn write_band(w: &mut BitWriter, cb: u8, q: &[i32]) {
@@ -141,6 +177,8 @@ pub(super) fn choose_sections(cost: &[[u32; NUM_CODEBOOKS]], short: bool) -> (Ve
     let mut best = vec![u32::MAX; n + 1];
     let mut back = vec![(0usize, 0u8); n + 1];
     best[0] = 0;
+    // Header bits by section length, looked up instead of divided out.
+    let header: Vec<u32> = (0..=n).map(|len| section_header_bits(len, short)).collect();
     for end in 1..=n {
         for cb in 0..NUM_CODEBOOKS {
             let mut run = 0u32;
@@ -153,7 +191,7 @@ pub(super) fn choose_sections(cost: &[[u32; NUM_CODEBOOKS]], short: bool) -> (Ve
                 if best[start] == u32::MAX {
                     continue;
                 }
-                let total = best[start] + run + section_header_bits(end - start, short);
+                let total = best[start] + run + header[end - start];
                 if total < best[end] {
                     best[end] = total;
                     back[end] = (start, cb as u8);
@@ -188,6 +226,35 @@ pub(super) fn write_sections(w: &mut BitWriter, sections: &[Section], short: boo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The specialised band costs equal the tuple-by-tuple sum for every
+    /// codebook, on random bands each codebook covers.
+    #[test]
+    fn band_bits_matches_tuple_bits() {
+        let mut s = 7u32;
+        let mut rnd = |m: u32| {
+            s = s.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (s >> 8) % m
+        };
+        for cb in 1..NUM_CODEBOOKS as u8 {
+            let (_, dim, lav) = CODEBOOK[usize::from(cb)];
+            let lav = if cb == ESC_HCB { MAX_QUANT } else { lav };
+            for len in [4usize, 8, 16, 32, 96] {
+                for _ in 0..200 {
+                    let q: Vec<i32> = (0..len)
+                        .map(|_| {
+                            let m = if rnd(4) == 0 { lav } else { lav.min(3) };
+                            let v = rnd(m as u32 + 1) as i32;
+                            if rnd(2) == 0 { -v } else { v }
+                        })
+                        .collect();
+                    let want: u32 = q.chunks_exact(dim).map(|t| tuple_bits(cb, t)).sum();
+                    assert_eq!(band_bits(cb, &q), want, "cb {cb} {q:?}");
+                }
+            }
+        }
+        assert_eq!(band_bits(0, &[0; 16]), 0);
+    }
 
     #[test]
     fn tuple_indices_follow_subclause_9_3() {

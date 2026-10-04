@@ -19,6 +19,7 @@ pub mod encode;
 mod error;
 mod mdct;
 mod sbr;
+mod simd;
 pub mod tables;
 
 pub use error::{Error, Result};
