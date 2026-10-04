@@ -291,6 +291,7 @@ mod tests {
 
     /// The banks as first written (one output's sum at a time, the matrix
     /// read by rows): the vectorised banks must equal them bit for bit.
+    #[allow(clippy::needless_range_loop)]
     mod literal {
         use super::super::*;
 

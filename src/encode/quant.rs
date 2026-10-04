@@ -183,8 +183,36 @@ pub(super) struct Quantized {
     pub body_bits: usize,
 }
 
+/// `2^(-3/16 (sf - 100))` and `2^(1/4 (sf - 100))` for every scalefactor
+/// 0..=255, computed once with the expressions they replace.
+fn sf_powers() -> &'static [(f32, f32); 256] {
+    static T: OnceLock<[(f32, f32); 256]> = OnceLock::new();
+    T.get_or_init(|| {
+        std::array::from_fn(|sf| {
+            let d = sf as i32 - SF_OFFSET;
+            (2f32.powf(-0.1875 * d as f32), 2f32.powf(0.25 * d as f32))
+        })
+    })
+}
+
+/// The quantizer gain `2^(-3/16 (sf - 100))`.
+fn sf_gain(sf: i32) -> f32 {
+    match usize::try_from(sf) {
+        Ok(i) if i < 256 => sf_powers()[i].0,
+        _ => 2f32.powf(-0.1875 * (sf - SF_OFFSET) as f32),
+    }
+}
+
+/// The step `2^(1/4 (sf - 100))`.
+fn sf_step(sf: i32) -> f32 {
+    match usize::try_from(sf) {
+        Ok(i) if i < 256 => sf_powers()[i].1,
+        _ => 2f32.powf(0.25 * (sf - SF_OFFSET) as f32),
+    }
+}
+
 fn quantize_band(abs34: &[f32], sf: i32, out: &mut [i32]) -> i32 {
-    let gain = 2f32.powf(-0.1875 * (sf - SF_OFFSET) as f32);
+    let gain = sf_gain(sf);
     let mut max = 0;
     for (o, &a) in out.iter_mut().zip(abs34) {
         let q = (a * gain + MAGIC_NUMBER) as i32;
@@ -195,7 +223,7 @@ fn quantize_band(abs34: &[f32], sf: i32, out: &mut [i32]) -> i32 {
 }
 
 fn band_noise(abs: &[f32], q: &[i32], sf: i32) -> f32 {
-    let step = 2f32.powf(0.25 * (sf - SF_OFFSET) as f32);
+    let step = sf_step(sf);
     let p = pow43();
     abs.iter()
         .zip(q)
@@ -217,7 +245,7 @@ fn min_sf_for(max_abs: f32) -> i32 {
     let mut sf = (s.ceil() as i32 + SF_OFFSET).max(0);
     // Guard the float edge: step up until the quantizer really fits.
     let a34 = max_abs.powf(0.75);
-    while (a34 * 2f32.powf(-0.1875 * (sf - SF_OFFSET) as f32) + MAGIC_NUMBER) as i32 > MAX_QUANT {
+    while (a34 * sf_gain(sf) + MAGIC_NUMBER) as i32 > MAX_QUANT {
         sf += 1;
     }
     sf
